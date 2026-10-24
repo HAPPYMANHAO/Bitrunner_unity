@@ -1,0 +1,408 @@
+using System;
+using System.Collections.Generic;
+
+namespace BitRunner.Core
+{
+    public sealed class MerchantOffer
+    {
+        public string ItemId;
+        public int Price;
+        public int Remaining;
+        public int Count = 1;
+        public int InstanceId;
+        public bool IsBuyback;
+    }
+
+    public sealed class Merchant
+    {
+        public const int DefaultStockSize = 6;
+        public const int DefaultStockWidth = 6;
+        public const int DefaultStockHeight = 5;
+        public const int BuyPriceMultiplier = 3;
+
+        private readonly ItemCatalog _catalog;
+        private readonly string[] _eligibleItemIds;
+        private readonly List<MerchantOffer> _offers = new List<MerchantOffer>();
+
+        public Merchant(ItemCatalog catalog)
+        {
+            if (catalog == null)
+            {
+                throw new ArgumentNullException(nameof(catalog));
+            }
+
+            _catalog = catalog;
+            Stock = new BagInventory(DefaultStockWidth, DefaultStockHeight);
+
+            var ids = new List<string>();
+            foreach (ItemDefinition definition in catalog.Definitions)
+            {
+                if (definition.Category == ItemCategory.Loot
+                    || definition.Category == ItemCategory.Material
+                    || definition.Category == ItemCategory.Key
+                    || definition.Category == ItemCategory.Currency
+                    || definition.Category == ItemCategory.Container)
+                {
+                    continue;
+                }
+
+                if (definition.Value <= 0)
+                {
+                    continue;
+                }
+
+                ids.Add(definition.Id);
+            }
+
+            ids.Sort(StringComparer.Ordinal);
+            _eligibleItemIds = ids.ToArray();
+        }
+
+        public IReadOnlyList<MerchantOffer> Offers
+        {
+            get { return _offers; }
+        }
+
+        public IReadOnlyList<string> EligibleItemIds
+        {
+            get { return _eligibleItemIds; }
+        }
+
+        public BagInventory Stock { get; private set; }
+
+        public int StockWeek { get; private set; }
+
+        public int StockDay { get; private set; }
+
+        public bool HasStockFor(int week, int day)
+        {
+            return StockWeek == week && StockDay == day;
+        }
+
+        public void RestockForDay(int week, int day, int seed, int stockSize = DefaultStockSize)
+        {
+            Restock(seed, stockSize);
+            StockWeek = week;
+            StockDay = day;
+        }
+
+        public void Restock(int seed, int stockSize = DefaultStockSize)
+        {
+            _offers.Clear();
+            ClearStock();
+
+            if (_eligibleItemIds.Length == 0 || stockSize <= 0)
+            {
+                return;
+            }
+
+            var ids = new List<string>(_eligibleItemIds);
+            var random = new Random(seed);
+
+            for (int i = ids.Count - 1; i > 0; i--)
+            {
+                int j = random.Next(i + 1);
+                string swap = ids[i];
+                ids[i] = ids[j];
+                ids[j] = swap;
+            }
+
+            int count = Math.Min(stockSize, ids.Count);
+            for (int i = 0; i < count; i++)
+            {
+                ItemDefinition definition = _catalog.Get(ids[i]);
+
+                PlacedItem placed;
+                if (!Stock.TryAdd(definition.Id, definition.Shape, out placed))
+                {
+                    continue;
+                }
+
+                _offers.Add(new MerchantOffer
+                {
+                    ItemId = ids[i],
+                    Price = definition.Value * BuyPriceMultiplier,
+                    Remaining = 1,
+                    Count = 1,
+                    InstanceId = placed.InstanceId,
+                    IsBuyback = false
+                });
+            }
+        }
+
+        public int FindOfferIndexByInstance(int instanceId)
+        {
+            for (int i = 0; i < _offers.Count; i++)
+            {
+                if (_offers[i].InstanceId == instanceId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        public bool TryBuyAt(
+            int offerIndex,
+            CampaignState campaign,
+            BagInventory target,
+            Cell origin,
+            int rotation,
+            out PlacedItem placed,
+            out string error)
+        {
+            if (campaign == null)
+            {
+                throw new ArgumentNullException(nameof(campaign));
+            }
+
+            if (target == null)
+            {
+                throw new ArgumentNullException(nameof(target));
+            }
+
+            placed = null;
+
+            if (offerIndex < 0 || offerIndex >= _offers.Count)
+            {
+                error = "未知商品。";
+                return false;
+            }
+
+            MerchantOffer offer = _offers[offerIndex];
+            if (offer.Remaining <= 0)
+            {
+                error = "已售罄。";
+                return false;
+            }
+
+            if (campaign.Bit < offer.Price)
+            {
+                error = "bit 不足。";
+                return false;
+            }
+
+            ItemDefinition definition = _catalog.Get(offer.ItemId);
+            if (!target.TryStackAt(definition.Id, definition.Shape, origin, rotation, offer.Count, definition.MaxStack, out placed, out error))
+            {
+                error = "仓库空间不足。";
+                return false;
+            }
+
+            if (!campaign.TrySpend(offer.Price))
+            {
+                target.Remove(placed.InstanceId);
+                placed = null;
+                error = "bit 不足。";
+                return false;
+            }
+
+            CompleteSale(offer);
+            error = null;
+            return true;
+        }
+
+        public bool TryBuy(int offerIndex, CampaignState campaign, BagInventory stash, out PlacedItem placed, out string error)
+        {
+            if (campaign == null)
+            {
+                throw new ArgumentNullException(nameof(campaign));
+            }
+
+            if (stash == null)
+            {
+                throw new ArgumentNullException(nameof(stash));
+            }
+
+            placed = null;
+
+            if (offerIndex < 0 || offerIndex >= _offers.Count)
+            {
+                error = "未知商品。";
+                return false;
+            }
+
+            MerchantOffer offer = _offers[offerIndex];
+            if (offer.Remaining <= 0)
+            {
+                error = "已售罄。";
+                return false;
+            }
+
+            if (campaign.Bit < offer.Price)
+            {
+                error = "bit 不足。";
+                return false;
+            }
+
+            ItemDefinition definition = _catalog.Get(offer.ItemId);
+            if (!stash.TryAdd(definition.Id, definition.Shape, true, offer.Count, out placed))
+            {
+                error = "仓库空间不足。";
+                return false;
+            }
+
+            if (!campaign.TrySpend(offer.Price))
+            {
+                stash.Remove(placed.InstanceId);
+                placed = null;
+                error = "bit 不足。";
+                return false;
+            }
+
+            CompleteSale(offer);
+            error = null;
+            return true;
+        }
+
+        private void CompleteSale(MerchantOffer offer)
+        {
+            offer.Remaining--;
+            if (offer.InstanceId != 0)
+            {
+                Stock.Remove(offer.InstanceId);
+                offer.InstanceId = 0;
+            }
+        }
+
+        private void ClearStock()
+        {
+            var items = new List<PlacedItem>(Stock.Items);
+            for (int i = 0; i < items.Count; i++)
+            {
+                Stock.Remove(items[i].InstanceId);
+            }
+        }
+
+        public bool TrySellToStock(
+            BagInventory source,
+            int instanceId,
+            CampaignState campaign,
+            Cell origin,
+            int rotation,
+            out int value,
+            out string error)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            if (campaign == null)
+            {
+                throw new ArgumentNullException(nameof(campaign));
+            }
+
+            value = 0;
+
+            PlacedItem item;
+            if (!source.TryGet(instanceId, out item))
+            {
+                error = "未知物品。";
+                return false;
+            }
+
+            ItemDefinition definition;
+            if (!_catalog.TryGet(item.DefinitionId, out definition))
+            {
+                error = "未知物品定义。";
+                return false;
+            }
+
+            if (definition.Category == ItemCategory.Key
+                || definition.Category == ItemCategory.Currency)
+            {
+                error = definition.Category == ItemCategory.Key
+                    ? "潜网密钥不能出售。"
+                    : "比特不能作为商品出售。";
+                return false;
+            }
+
+            if (ContainerOps.HasContents(item))
+            {
+                error = "请先清空容器再出售。";
+                return false;
+            }
+
+            PlacedItem placed;
+            if (!Stock.TryStackAt(definition.Id, definition.Shape, origin, rotation, item.Count, definition.MaxStack, out placed, out error))
+            {
+                error = "货架空间不足，无法出售。";
+                return false;
+            }
+
+            if (!source.Remove(instanceId))
+            {
+                Stock.Remove(placed.InstanceId);
+                error = "未知物品。";
+                return false;
+            }
+
+            value = definition.Value * item.Count;
+            campaign.AddBit(value);
+            _offers.Add(new MerchantOffer
+            {
+                ItemId = definition.Id,
+                Price = value,
+                Remaining = 1,
+                Count = item.Count,
+                InstanceId = placed.InstanceId,
+                IsBuyback = true
+            });
+            error = null;
+            return true;
+        }
+
+        public bool TrySell(BagInventory source, int instanceId, CampaignState campaign, out int value, out string error)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            if (campaign == null)
+            {
+                throw new ArgumentNullException(nameof(campaign));
+            }
+
+            value = 0;
+
+            PlacedItem item;
+            if (!source.TryGet(instanceId, out item))
+            {
+                error = "未知物品。";
+                return false;
+            }
+
+            ItemDefinition definition;
+            if (!_catalog.TryGet(item.DefinitionId, out definition))
+            {
+                error = "未知物品定义。";
+                return false;
+            }
+
+            if (definition.Category == ItemCategory.Key
+                || definition.Category == ItemCategory.Currency)
+            {
+                error = definition.Category == ItemCategory.Key
+                    ? "潜网密钥不能出售。"
+                    : "比特不能作为商品出售。";
+                return false;
+            }
+
+            if (ContainerOps.HasContents(item))
+            {
+                error = "请先清空容器再出售。";
+                return false;
+            }
+
+            int count = item.Count;
+            source.Remove(instanceId);
+            value = definition.Value * count;
+            campaign.AddBit(value);
+            error = null;
+            return true;
+        }
+    }
+}

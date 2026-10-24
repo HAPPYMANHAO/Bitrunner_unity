@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/_Project/Scenes/MainMenu.unity
+    guid: 0c68e30dedd0f124587f766acf9797c1
+  - enabled: 1
+    path: Assets/_Project/Scenes/BasePrototype.unity
+    guid: bfb1adeb17201364b91489d83cc811aa
+  - enabled: 1
+    path: Assets/_Project/Scenes/CombatPrototype.unity
+    guid: 01f7273016cd62240a273ad46fa32571
+  - enabled: 1
+    path: Assets/_Project/Scenes/ExpeditionPrototype.unity
+    guid: 29810575f4db675488b4d21335bf80ab
+  m_configObjects:
+    com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 2bcd2660ca9b64942af0de543d8d7100, type: 3}

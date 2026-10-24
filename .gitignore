@@ -58,6 +58,7 @@ ExportedObj/
 *.mdb
 *.opendb
 *.VC.db
+*.VC.opendb
 
 # Unity3D generated meta files
 *.pidb.meta
@@ -107,3 +108,13 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Local editor/tool state
+_Recovery/
+.workbuddy/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
