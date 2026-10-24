@@ -28,8 +28,15 @@ namespace BitRunner.Game
             Merchant,
             Pod,
             Mine,
-            Craft
+            Craft,
+            Cpu,
+            Insurance,
+            Storage,
+            Comms
         }
+
+        /// <summary>标签只有 20px 宽，所以一律两个字。</summary>
+        private static readonly string[] TabNames = { "商人", "潜网", "矿场", "制作", "芯片", "保险", "仓储", "通讯" };
 
         private ItemCatalog _catalog;
         private CampaignState _campaign;
@@ -37,6 +44,10 @@ namespace BitRunner.Game
         private DivePod _pod;
         private BitMine _mine;
         private CraftingStation _craft;
+        private CpuCore _cpu;
+        private InsuranceHub _insurance;
+        private StorageRack _rack;
+        private CommsHub _comms;
         private BagInventory _bag;
         private BagInventory _stash;
         private Dictionary<string, Color> _palette;
@@ -103,8 +114,49 @@ namespace BitRunner.Game
         private Text _craftUpgradeText;
         private Image _craftUpgradeImage;
 
-        private readonly List<BaseBagSource> _sources = new List<BaseBagSource>();
-        private BaseDragInteraction _drag;
+        private BagView _cpuView;
+        private RectTransform _cpuRect;
+        private Text _cpuInfo;
+        private RectTransform _cpuUpgradeRect;
+        private Text _cpuUpgradeText;
+        private Image _cpuUpgradeImage;
+
+        private Text _insuranceInfo;
+        private RectTransform _insuranceUpgradeRect;
+        private Text _insuranceUpgradeText;
+        private Image _insuranceUpgradeImage;
+
+        private Text _storageInfo;
+        private RectTransform _storageUpgradeRect;
+        private Text _storageUpgradeText;
+        private Image _storageUpgradeImage;
+
+        // ---------- 通讯中枢 ----------
+        private RectTransform _commsRect;
+        private BagView _commsView;
+        private Text _commsInfo;
+        private RectTransform _commsTasksRect;
+        private RectTransform _commsUpgradeRect;
+        private Text _commsUpgradeText;
+        private Image _commsUpgradeImage;
+
+        private GameObject _commsOverlay;
+        private Text _commsOverlayTitle;
+        private Text _commsOverlaySubtitle;
+        private readonly List<RectTransform> _commsNpcRows = new List<RectTransform>();
+        private readonly List<Text> _commsNpcLabels = new List<Text>();
+        private readonly List<RectTransform> _commsShopRows = new List<RectTransform>();
+        private readonly List<Text> _commsShopLabels = new List<Text>();
+        private readonly List<Text> _commsShopActions = new List<Text>();
+        private readonly List<RectTransform> _commsQuestRows = new List<RectTransform>();
+        private readonly List<Text> _commsQuestLabels = new List<Text>();
+        private readonly List<Text> _commsQuestActions = new List<Text>();
+        private readonly int[] _commsShopTargets = new int[3];
+        private readonly string[] _commsQuestTargets = new string[3];
+        private string _commsSelectedNpcId;
+        private readonly List<string> _commsNpcOrder = new List<string>();
+
+        private readonly List<BaseBagSource> _sources = new List<BaseBagSource>();        private BaseDragInteraction _drag;
         private FloatingWindowManager _containerWindows;
 
         private GameObject _tooltipPanel;
@@ -128,6 +180,10 @@ namespace BitRunner.Game
             _pod = GameSession.Pod;
             _mine = GameSession.Mine;
             _craft = GameSession.Craft;
+            _cpu = GameSession.Cpu;
+            _insurance = GameSession.Insurance;
+            _rack = GameSession.Rack;
+            _comms = GameSession.Comms;
             _bag = GameSession.PlayerBag;
             _stash = GameSession.Stash;
             _secure = GameSession.Secure;
@@ -146,6 +202,7 @@ namespace BitRunner.Game
             BuildTooltip(canvas.transform);
             BuildContainerWindows();
             BuildEndOverlay(canvas.transform);
+            BuildCommsOverlay(canvas.transform);
 
             SetActiveTab(BaseTab.Merchant, true);
             RefreshAll();
@@ -180,6 +237,11 @@ namespace BitRunner.Game
             UpdateTooltip(screen);
 
             if (!mouse.leftButton.wasPressedThisFrame)
+            {
+                return;
+            }
+
+            if (HandleCommsOverlayClick(screen))
             {
                 return;
             }
@@ -237,13 +299,14 @@ namespace BitRunner.Game
                     if (GameSession.UpgradePod(out error))
                     {
                         _podView.Rebind(_pod.Grid);
+                        _podRect.sizeDelta = new Vector2(_pod.Width * BagView.CellSize, _pod.Height * BagView.CellSize);
                         RebuildSources();
                         RefreshAll();
-                        SetMessage("潜网舱升级到 Lv." + _pod.Level + "。");
+                        SetMessage("潜网舱升级到 Lv." + _pod.Level + "（" + _pod.Width + "×" + _pod.Height + "）。");
                     }
                     else
                     {
-                        SetMessage(error);
+                        SetMessage(UpgradeFailureText(error, _pod.UpgradeCost, _pod.UpgradeMaterialIds, _pod.CanUpgrade));
                     }
 
                     return true;
@@ -274,7 +337,7 @@ namespace BitRunner.Game
                     }
                     else
                     {
-                        SetMessage(error);
+                        SetMessage(UpgradeFailureText(error, _mine.UpgradeCost, _mine.UpgradeMaterialIds, _mine.CanUpgrade));
                     }
 
                     return true;
@@ -310,13 +373,115 @@ namespace BitRunner.Game
                     if (GameSession.UpgradeCraft(out error))
                     {
                         _craftView.Rebind(_craft.Grid);
+                        _craftRect.sizeDelta = new Vector2(_craft.Width * BagView.CellSize, _craft.Height * BagView.CellSize);
                         RebuildSources();
                         RefreshAll();
-                        SetMessage("制作站升级到 Lv." + _craft.Level + "。");
+                        SetMessage("制作站升级到 Lv." + _craft.Level + "（" + _craft.Width + "×" + _craft.Height + "）。");
                     }
                     else
                     {
-                        SetMessage(error);
+                        SetMessage(UpgradeFailureText(error, _craft.UpgradeCost, _craft.UpgradeMaterialIds, _craft.CanUpgrade));
+                    }
+
+                    return true;
+                }
+            }
+
+            if (_activeTab == BaseTab.Cpu)
+            {
+                if (_cpuUpgradeRect != null && RectTransformUtility.RectangleContainsScreenPoint(_cpuUpgradeRect, screen, null))
+                {
+                    string error;
+                    if (GameSession.UpgradeCpu(out error))
+                    {
+                        // 网格尺寸变了，必须 Rebind 才会重画格子。
+                        _cpuView.Rebind(_cpu.Grid);
+                        _cpuRect.sizeDelta = new Vector2(_cpu.Width * BagView.CellSize, _cpu.Height * BagView.CellSize);
+                        RebuildSources();
+                        RefreshAll();
+                        SetMessage("中央处理器升级到 Lv." + _cpu.Level + "（" + _cpu.Width + "×" + _cpu.Height + "）。");
+                    }
+                    else
+                    {
+                        SetMessage(UpgradeFailureText(error, _cpu.UpgradeCost, _cpu.UpgradeMaterialIds, _cpu.CanUpgrade));
+                    }
+
+                    return true;
+                }
+            }
+
+            if (_activeTab == BaseTab.Comms)
+            {
+                if (_commsTasksRect != null && RectTransformUtility.RectangleContainsScreenPoint(_commsTasksRect, screen, null))
+                {
+                    OpenCommsOverlay();
+                    return true;
+                }
+
+                if (_commsUpgradeRect != null && RectTransformUtility.RectangleContainsScreenPoint(_commsUpgradeRect, screen, null))
+                {
+                    string error;
+                    if (GameSession.UpgradeComms(out error))
+                    {
+                        _commsView.Rebind(_comms.Grid);
+                        _commsRect.sizeDelta = new Vector2(
+                            _comms.Width * BagView.CellSize,
+                            _comms.Height * BagView.CellSize);
+                        RebuildSources();
+                        RefreshAll();
+                        SetMessage("通讯中枢升级到 Lv." + _comms.Level + "（" + _comms.Width + "×" + _comms.Height + "）。");
+                    }
+                    else
+                    {
+                        SetMessage(UpgradeFailureText(error, _comms.UpgradeCost, _comms.UpgradeMaterialIds, _comms.CanUpgrade));
+                    }
+
+                    return true;
+                }
+            }
+
+            if (_activeTab == BaseTab.Insurance)
+            {
+                if (_insuranceUpgradeRect != null && RectTransformUtility.RectangleContainsScreenPoint(_insuranceUpgradeRect, screen, null))
+                {
+                    string error;
+                    if (GameSession.UpgradeInsurance(out error))
+                    {
+                        _secureView.Rebind(_secure);
+                        _secureRect.sizeDelta = new Vector2(
+                            _secure.Grid.Width * BagView.CellSize,
+                            _secure.Grid.Height * BagView.CellSize);
+                        RebuildSources();
+                        RefreshAll();
+                        SetMessage("保险网络中枢升级到 Lv." + _insurance.Level + "。");
+                    }
+                    else
+                    {
+                        SetMessage(UpgradeFailureText(error, _insurance.UpgradeCost, _insurance.UpgradeMaterialIds, _insurance.CanUpgrade));
+                    }
+
+                    return true;
+                }
+            }
+
+            if (_activeTab == BaseTab.Storage)
+            {
+                if (_storageUpgradeRect != null && RectTransformRectangleContains(_storageUpgradeRect, screen))
+                {
+                    string error;
+                    if (GameSession.UpgradeStorage(out error))
+                    {
+                        _stashView.Rebind(_stash);
+                        _stashRect.sizeDelta = new Vector2(
+                            _stash.Grid.Width * BagView.CellSize,
+                            _stash.Grid.Height * BagView.CellSize);
+                        RebuildSources();
+                        RefreshAll();
+                        SetMessage("仓储设备升级到 Lv." + _rack.Level + "（" + _stash.Grid.Height + " 行）。");
+                    }
+                    else
+                    {
+                        SetMessage(UpgradeFailureText(error, _rack.UpgradeCost, _rack.UpgradeMaterialIds, _rack.CanUpgrade));
                     }
 
                     return true;
@@ -324,6 +489,11 @@ namespace BitRunner.Game
             }
 
             return false;
+        }
+
+        private static bool RectTransformRectangleContains(RectTransform rect, Vector2 screen)
+        {
+            return RectTransformUtility.RectangleContainsScreenPoint(rect, screen, null);
         }
 
         private void Deploy()
@@ -365,12 +535,17 @@ namespace BitRunner.Game
             _merchantView.Refresh();
             _podView.Refresh();
             _craftView.Refresh();
+            _cpuView.Refresh();
             RefreshMineCells();
             RefreshHud();
             RefreshTabs();
             RefreshPod();
             RefreshMine();
             RefreshCraft();
+            RefreshCpu();
+            RefreshInsurance();
+            RefreshStorage();
+            RefreshComms();
             RefreshDeploy();
 
             if (_messageText != null)
@@ -386,13 +561,9 @@ namespace BitRunner.Game
                 return;
             }
 
-            _tabLabels[0].text = "商人 " + _merchant.Stock.Count;
-            _tabLabels[1].text = "潜网舱";
-            _tabLabels[2].text = "矿场";
-            _tabLabels[3].text = "制作站";
-
-            for (int i = 0; i < _tabImages.Length; i++)
+            for (int i = 0; i < _tabLabels.Length; i++)
             {
+                _tabLabels[i].text = TabNames[i];
                 bool active = (int)_activeTab == i;
                 _tabImages[i].color = active ? AccentColor : new Color32(38, 44, 52, 255);
                 _tabLabels[i].color = active ? TextColor : MutedColor;
@@ -449,18 +620,435 @@ namespace BitRunner.Game
             }
 
             CraftRecipe recipe = _craft.MatchingRecipe;
+            CraftRecipe locked = recipe == null ? _craft.LockedRecipe : null;
+
+            // 「材料够了但站不够」和「材料不够」是两件事，按钮文案必须分开说，
+            // 否则玩家会一直往工作台上堆材料却不知道为什么没反应。
+            string recipeLine = recipe != null
+                ? recipe.Name
+                : locked != null
+                    ? locked.Name + "（需 Lv." + locked.MinStationLevel + "）"
+                    : "无匹配";
+
             _craftInfo.text = "Lv." + _craft.Level + "  "
                               + _craft.Grid.Grid.Width + "×" + _craft.Grid.Grid.Height
-                              + "\n配方：" + (recipe != null ? recipe.Name : "无匹配")
+                              + "\n配方：" + recipeLine
                               + "\n升级：" + UpgradeText(_craft.UpgradeCost, _craft.UpgradeMaterialIds, _craft.CanUpgrade);
 
             bool canCraft = recipe != null;
-            _craftCraftText.text = canCraft ? "制作" : "材料不足";
+            _craftCraftText.text = canCraft ? "制作" : locked != null ? "站不够" : "材料不足";
             _craftCraftImage.color = canCraft ? AccentColor : DisabledColor;
 
             bool max = !_craft.CanUpgrade;
             _craftUpgradeText.text = max ? "已满级" : "升级";
             _craftUpgradeImage.color = max ? DisabledColor : AccentColor;
+        }
+
+        private void RefreshCpu()
+        {
+            if (_cpuInfo == null)
+            {
+                return;
+            }
+
+            GlobalModifiers modifiers = _cpu.EvaluateModifiers(_catalog);
+            _cpuInfo.text = "Lv." + _cpu.Level + "  " + _cpu.Width + "×" + _cpu.Height
+                            + "   芯片 " + _cpu.Grid.Count + "/" + _cpu.Grid.Capacity
+                            + "\n加成：" + modifiers.Describe()
+                            + "\n可插 T1–T" + _cpu.MaxChipTier
+                            + "\n升级：" + UpgradeText(_cpu.UpgradeCost, _cpu.UpgradeMaterialIds, _cpu.CanUpgrade);
+
+            bool max = !_cpu.CanUpgrade;
+            _cpuUpgradeText.text = max ? "已满级" : "升级";
+            _cpuUpgradeImage.color = max ? DisabledColor : AccentColor;
+        }
+
+        private void RefreshInsurance()
+        {
+            if (_insuranceInfo == null)
+            {
+                return;
+            }
+
+            _insuranceInfo.text = "Lv." + _insurance.Level + "  "
+                                  + InsuranceHub.WidthForLevel(_insurance.Level) + "×"
+                                  + InsuranceHub.HeightForLevel(_insurance.Level)
+                                  + "（" + _insurance.CapacityFor(_insurance.Level) + " 格）"
+                                  + "\n保险箱是唯一阵亡也不会丢的格子，"
+                                  + "\n只收 1×1 的非武器 / 护甲 / 比特。"
+                                  + "\n升级：" + UpgradeText(_insurance.UpgradeCost, _insurance.UpgradeMaterialIds, _insurance.CanUpgrade);
+
+            bool max = !_insurance.CanUpgrade;
+            _insuranceUpgradeText.text = max ? "已满级" : "升级";
+            _insuranceUpgradeImage.color = max ? DisabledColor : AccentColor;
+        }
+
+        private void RefreshStorage()
+        {
+            if (_storageInfo == null)
+            {
+                return;
+            }
+
+            _storageInfo.text = "Lv." + _rack.Level + "  "
+                                + StorageRack.Width + "×" + StorageRack.HeightForLevel(_rack.Level)
+                                + "（" + (_stash.Grid.Width * _stash.Grid.Height) + " 格，空 " + _stash.FreeCellCount + "）"
+                                + "\n仓库用于囤材料与备用装备。"
+                                + "\n升级：" + UpgradeText(_rack.UpgradeCost, _rack.UpgradeMaterialIds, _rack.CanUpgrade);
+
+            bool max = !_rack.CanUpgrade;
+            _storageUpgradeText.text = max ? "已满级" : "升级";
+            _storageUpgradeImage.color = max ? DisabledColor : AccentColor;
+        }
+
+        private void RefreshComms()
+        {
+            if (_commsView != null)
+            {
+                _commsView.Refresh();
+            }
+
+            if (_commsInfo == null)
+            {
+                return;
+            }
+
+            IReadOnlyList<string> contacted = _comms.ContactedNpcIds;
+            string names = "无";
+            for (int i = 0; i < contacted.Count; i++)
+            {
+                NpcDefinition npc;
+                if (!NpcLibrary.TryGet(contacted[i], out npc))
+                {
+                    continue;
+                }
+
+                // 只取冒号后的名字，面板太窄放不下「回收商 · 老陈」。
+                string shortName = npc.DisplayName;
+                int dot = shortName.LastIndexOf('·');
+                if (dot >= 0 && dot + 1 < shortName.Length)
+                {
+                    shortName = shortName.Substring(dot + 1).Trim();
+                }
+
+                names = i == 0 ? shortName : names + "、" + shortName;
+            }
+
+            _commsInfo.text = "已联系 " + contacted.Count + " 人  Lv." + _comms.Level
+                              + "  " + _comms.Width + "×" + _comms.Height
+                              + "\n" + names
+                              + "\n升级：" + UpgradeText(_comms.UpgradeCost, _comms.UpgradeMaterialIds, _comms.CanUpgrade);
+
+            bool max = !_comms.CanUpgrade;
+            _commsUpgradeText.text = max ? "已满级" : "升级";
+            _commsUpgradeImage.color = max ? DisabledColor : AccentColor;
+        }
+
+        private void OpenCommsOverlay()
+        {
+            if (_commsOverlay == null)
+            {
+                return;
+            }
+
+            IReadOnlyList<string> contacted = _comms.ContactedNpcIds;
+            if (contacted.Count == 0)
+            {
+                SetMessage("通讯中枢里没有任何上行链路。");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_commsSelectedNpcId) || !HasContacted(contacted, _commsSelectedNpcId))
+            {
+                _commsSelectedNpcId = contacted[0];
+            }
+
+            _commsOverlay.SetActive(true);
+            RefreshCommsOverlay();
+        }
+
+        private void CloseCommsOverlay()
+        {
+            if (_commsOverlay != null)
+            {
+                _commsOverlay.SetActive(false);
+            }
+        }
+
+        private static bool HasContacted(IReadOnlyList<string> contacted, string npcId)
+        {
+            for (int i = 0; i < contacted.Count; i++)
+            {
+                if (contacted[i] == npcId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void RefreshCommsOverlay()
+        {
+            if (_commsOverlay == null || !_commsOverlay.activeSelf)
+            {
+                return;
+            }
+
+            IReadOnlyList<string> contacted = _comms.ContactedNpcIds;
+            _commsNpcOrder.Clear();
+            for (int i = 0; i < contacted.Count; i++)
+            {
+                _commsNpcOrder.Add(contacted[i]);
+            }
+
+            for (int i = 0; i < _commsNpcRows.Count; i++)
+            {
+                bool visible = i < _commsNpcOrder.Count;
+                _commsNpcRows[i].gameObject.SetActive(visible);
+                if (!visible)
+                {
+                    continue;
+                }
+
+                NpcDefinition npc;
+                NpcLibrary.TryGet(_commsNpcOrder[i], out npc);
+                bool selected = npc != null && npc.Id == _commsSelectedNpcId;
+                _commsNpcLabels[i].text = (selected ? "▶ " : "   ") + npc.DisplayName;
+                _commsNpcLabels[i].color = selected ? AccentColor : TextColor;
+            }
+
+            if (string.IsNullOrEmpty(_commsSelectedNpcId))
+            {
+                return;
+            }
+
+            NpcDefinition current;
+            if (!NpcLibrary.TryGet(_commsSelectedNpcId, out current))
+            {
+                return;
+            }
+
+            _commsOverlayTitle.text = current.DisplayName + "　" + current.Faction;
+            int activeCount = 0;
+            IReadOnlyList<QuestProgress> active = GameSession.Quests.ActiveQuests;
+            for (int i = 0; i < active.Count; i++)
+            {
+                QuestDefinition definition;
+                if (QuestLibrary.TryGet(active[i].QuestId, out definition) && definition.NpcId == current.Id)
+                {
+                    activeCount++;
+                }
+            }
+
+            _commsOverlaySubtitle.text = "上行链路 " + current.UplinkItemId + "　挂载任务 " + activeCount + "/1";
+
+            // ---------- 货架 ----------
+            BagInventory stock = GameSession.NpcStocks.StockFor(current.Id);
+            IReadOnlyList<PlacedItem> items = stock.Items;
+            for (int i = 0; i < _commsShopRows.Count; i++)
+            {
+                bool visible = i < items.Count;
+                _commsShopRows[i].gameObject.SetActive(visible);
+                if (!visible)
+                {
+                    _commsShopTargets[i] = 0;
+                    continue;
+                }
+
+                ItemDefinition definition = _catalog.Get(items[i].DefinitionId);
+                int price = NpcMarket.PriceOf(definition);
+                _commsShopLabels[i].text = definition.DisplayName + "　Lv." + definition.Level;
+                _commsShopActions[i].text = price + " bit";
+                _commsShopActions[i].color = GameSession.Campaign.Bit >= price ? AccentColor : DisabledColor;
+                _commsShopTargets[i] = items[i].InstanceId;
+            }
+
+            // ---------- 任务 ----------
+            List<QuestDefinition> quests = QuestLibrary.ForNpc(current.Id);
+            int row = 0;
+            for (int i = 0; i < quests.Count && row < _commsQuestRows.Count; i++)
+            {
+                QuestDefinition definition = quests[i];
+                QuestState state = GameSession.Quests.StateOf(definition.Id);
+
+                string action;
+                Color actionColor = AccentColor;
+                if (state == QuestState.Active || state == QuestState.Ready)
+                {
+                    QuestProgress progress = GameSession.Quests.Get(definition.Id);
+                    action = state == QuestState.Ready
+                        ? "领取"
+                        : (progress != null ? progress.Count : 0) + "/" + definition.TargetCount;
+                    if (state == QuestState.Ready)
+                    {
+                        actionColor = new Color32(126, 196, 132, 255);
+                    }
+                    else
+                    {
+                        actionColor = MutedColor;
+                    }
+                }
+                else if (state == QuestState.Claimed)
+                {
+                    continue;
+                }
+                else
+                {
+                    string reason;
+                    if (!GameSession.Quests.CanOffer(definition, _comms, QuestLog.Today(_campaign), out reason))
+                    {
+                        // 只显示「能接」和「冷却中」，前置没做的不显示，避免一次性甩十个任务给玩家。
+                        if (reason != null && reason.Contains("气头上"))
+                        {
+                            action = "冷却中";
+                            actionColor = DisabledColor;
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        action = "接受";
+                    }
+                }
+
+                _commsQuestRows[row].gameObject.SetActive(true);
+                _commsQuestLabels[row].text = definition.Title;
+                _commsQuestActions[row].text = action;
+                _commsQuestActions[row].color = actionColor;
+                _commsQuestTargets[row] = definition.Id;
+                row++;
+            }
+
+            for (int i = row; i < _commsQuestRows.Count; i++)
+            {
+                _commsQuestRows[i].gameObject.SetActive(false);
+                _commsQuestTargets[i] = null;
+            }
+        }
+
+        /// <summary>弹层开着时，点击优先给弹层处理，避免透过去点到基地面板。</summary>
+        private bool HandleCommsOverlayClick(Vector2 screen)
+        {
+            if (_commsOverlay == null || !_commsOverlay.activeSelf)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < _commsNpcRows.Count; i++)
+            {
+                if (!_commsNpcRows[i].gameObject.activeSelf)
+                {
+                    continue;
+                }
+
+                if (RectTransformUtility.RectangleContainsScreenPoint(_commsNpcRows[i], screen, null))
+                {
+                    _commsSelectedNpcId = _commsNpcOrder[i];
+                    RefreshCommsOverlay();
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < _commsShopRows.Count; i++)
+            {
+                if (!_commsShopRows[i].gameObject.activeSelf)
+                {
+                    continue;
+                }
+
+                if (RectTransformUtility.RectangleContainsScreenPoint(_commsShopRows[i], screen, null))
+                {
+                    string error;
+                    if (GameSession.BuyFromNpc(_commsSelectedNpcId, _commsShopTargets[i], out error))
+                    {
+                        SetMessage("买入一件。");
+                    }
+                    else
+                    {
+                        SetMessage(error);
+                    }
+
+                    // 买的东西进背包/仓库，bit 从仓库的钱堆里扣——
+                    // 这些视图都要跟着动，只刷 HUD 会留下「300 bit 还在」的假象。
+                    RefreshAll();
+                    RefreshCommsOverlay();
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < _commsQuestRows.Count; i++)
+            {
+                if (!_commsQuestRows[i].gameObject.activeSelf)
+                {
+                    continue;
+                }
+
+                if (RectTransformUtility.RectangleContainsScreenPoint(_commsQuestRows[i], screen, null))
+                {
+                    ActivateQuestRow(_commsQuestTargets[i]);
+                    return true;
+                }
+            }
+
+            CloseCommsOverlay();
+            return true;
+        }
+
+        private void ActivateQuestRow(string questId)
+        {
+            if (string.IsNullOrEmpty(questId))
+            {
+                return;
+            }
+
+            QuestDefinition definition;
+            if (!QuestLibrary.TryGet(questId, out definition))
+            {
+                return;
+            }
+
+            QuestState state = GameSession.Quests.StateOf(questId);
+            string error;
+            if (state == QuestState.Active)
+            {
+                QuestProgress progress = GameSession.Quests.Get(questId);
+                SetMessage("「" + definition.Title + "」"
+                           + (progress != null ? progress.Count : 0) + "/" + definition.TargetCount
+                           + "：" + definition.ObjectiveText(_catalog));
+                return;
+            }
+
+            if (state == QuestState.Ready)
+            {
+                if (GameSession.ClaimQuest(questId, out error))
+                {
+                    SetMessage("完成「" + definition.Title + "」。");
+                    RefreshAll();
+                }
+                else
+                {
+                    SetMessage(error);
+                }
+
+                RefreshCommsOverlay();
+                return;
+            }
+
+            if (GameSession.AcceptQuest(questId, out error))
+            {
+                SetMessage("接取「" + definition.Title + "」。上行链路已锁定。");
+                RefreshAll();
+            }
+            else
+            {
+                SetMessage(error);
+            }
+
+            RefreshCommsOverlay();
         }
 
         private void RefreshDeploy()
@@ -477,7 +1065,7 @@ namespace BitRunner.Game
             if (!_pod.TryResolveDive(_catalog, out plan, out error))
             {
                 _deployImage.color = DisabledColor;
-                _deployText.text = "需要潜网密钥";
+                _deployText.text = _pod.LastResolveBlockedByTier ? "潜网舱等级不足" : "需要潜网密钥";
                 return;
             }
 
@@ -503,6 +1091,10 @@ namespace BitRunner.Game
             RefreshPod();
             RefreshMine();
             RefreshCraft();
+            RefreshCpu();
+            RefreshInsurance();
+            RefreshStorage();
+            RefreshComms();
             RefreshDeploy();
         }
 
@@ -524,6 +1116,31 @@ namespace BitRunner.Game
             else if (_activeTab == BaseTab.Craft)
             {
                 _sources.Add(new BaseBagSource { Name = "CRAFT", Bag = _craft.Grid, Rect = _craftRect, View = _craftView });
+            }
+            else if (_activeTab == BaseTab.Cpu)
+            {
+                // 只收芯片，且档位不能超过 CPU 等级——否则低级 CPU 也能插 T5 芯片，
+                // 「升级扩容」就只剩下格子数量一个收益了。
+                _sources.Add(new BaseBagSource
+                {
+                    Name = "CPU",
+                    Bag = _cpu.Grid,
+                    Rect = _cpuRect,
+                    View = _cpuView,
+                    ItemFilter = definition => _cpu.Accepts(definition)
+                });
+            }
+            else if (_activeTab == BaseTab.Comms)
+            {
+                // 只收通讯上行链路：关卡密钥、芯片、装备都进不来。
+                _sources.Add(new BaseBagSource
+                {
+                    Name = "COMMS",
+                    Bag = _comms.Grid,
+                    Rect = _commsRect,
+                    View = _commsView,
+                    ItemFilter = definition => CommsHub.CanAccept(definition)
+                });
             }
 
             if (_drag != null)
@@ -608,7 +1225,7 @@ namespace BitRunner.Game
         {
             _hudText.text = "第 " + _campaign.Week + " 周"
                             + "\n应缴 " + _campaign.CurrentDue + "    bit " + _campaign.Bit
-                            + "\n负债 " + _campaign.DebtRemaining;
+                            + "\n已缴 " + _campaign.TotalPaid;
 
             _hudText.color = _campaign.IsActive && _campaign.Bit < _campaign.CurrentDue
                 ? WarningColor
@@ -617,18 +1234,20 @@ namespace BitRunner.Game
             if (_campaign.IsActive)
             {
                 _statusText.text = "距缴款 " + _campaign.DaysRemaining + " 次探索"
-                                   + "\n背包 " + _bag.FreeCellCount + " 格 · 仓库 " + _stash.FreeCellCount + " 格";
+                                   + "  ·  生命 " + GameSession.ExpeditionMaxHp
+                                   + "\n背包 " + _bag.FreeCellCount + " 格 · 仓库 " + _stash.FreeCellCount + " 格"
+                                   + " · 能量 " + (GameSession.BaseEnergyPerTurn + GameSession.CpuModifiers.BaseEnergy);
             }
             else
             {
                 _statusText.text = _campaign.Status == CampaignStatus.Victory
-                    ? "债务已清"
-                    : "游戏结束";
+                    ? EndingLabel(_campaign.Ending)
+                    : "债务违约";
             }
 
             if (_secureTitle != null)
             {
-                _secureTitle.text = "保险箱 " + _secure.Count + "/4";
+                _secureTitle.text = "保险箱 " + _secure.Count + "/" + _secure.Grid.Capacity;
             }
 
             if (_progressFill != null && _progressLabel != null)
@@ -664,13 +1283,28 @@ namespace BitRunner.Game
 
             if (_campaign.Status == CampaignStatus.Victory)
             {
-                _endTitle.text = "债务已清";
-                _endSubtitle.text = "你还清了 " + _campaign.TotalDebt + " bit。\n点击开始新游戏。";
+                _endTitle.text = EndingLabel(_campaign.Ending);
+                _endSubtitle.text = "撑到第 " + _campaign.Week + " 周，累计上缴 "
+                                    + _campaign.TotalPaid + " bit。\n点击开始新游戏。";
             }
             else
             {
-                _endTitle.text = "游戏结束";
-                _endSubtitle.text = "债务到期了。\n点击开始新游戏。";
+                _endTitle.text = "债务违约";
+                _endSubtitle.text = "第 " + _campaign.Week + " 周欠下 "
+                                    + _campaign.CurrentDue + " bit 无法偿还。\n点击开始新游戏。";
+            }
+        }
+
+        private static string EndingLabel(CampaignEnding ending)
+        {
+            switch (ending)
+            {
+                case CampaignEnding.BossSlain:
+                    return "机甲已倒下";
+                case CampaignEnding.Escaped:
+                    return "你逃了出去";
+                default:
+                    return "游戏结束";
             }
         }
 
@@ -760,26 +1394,31 @@ namespace BitRunner.Game
             AddBorder(panel, new Color32(67, 59, 47, 255));
             panel.gameObject.AddComponent<RectMask2D>();
 
-            _tabContents = new GameObject[4];
-            _tabRects = new RectTransform[4];
-            _tabLabels = new Text[4];
-            _tabImages = new Image[4];
+            int tabCount = TabNames.Length;
+            _tabContents = new GameObject[tabCount];
+            _tabRects = new RectTransform[tabCount];
+            _tabLabels = new Text[tabCount];
+            _tabImages = new Image[tabCount];
 
-            for (int i = 0; i < 4; i++)
+            // 8 个标签挤在 170px 里：每个 20px、间距 20.6px，两个字在字号 7 下刚好放得下。
+            // 总量 4 + 7×20.6 + 20 = 168.2，留 1.8px 余量。
+            const float tabWidth = 20f;
+            const float tabStep = 20.6f;
+            for (int i = 0; i < tabCount; i++)
             {
                 RectTransform tab = CreateAnchoredPanel(
                     panel,
                     "Tab_" + i,
-                    new Vector2(4f + i * 40f, -2f),
-                    new Vector2(38f, 18f),
+                    new Vector2(4f + i * tabStep, -2f),
+                    new Vector2(tabWidth, 18f),
                     new Color32(38, 44, 52, 255));
                 _tabRects[i] = tab;
                 _tabImages[i] = tab.GetComponent<Image>();
-                _tabLabels[i] = CreateCenteredText(tab, "Label", string.Empty, 7, TextColor, Vector2.zero, new Vector2(36f, 16f));
+                _tabLabels[i] = CreateCenteredText(tab, "Label", TabNames[i], 7, TextColor, Vector2.zero, new Vector2(tabWidth - 2f, 16f));
             }
 
             RectTransform content = CreateAnchoredRect(panel, "Content", new Vector2(0f, -22f), new Vector2(170f, 138f));
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < tabCount; i++)
             {
                 var go = new GameObject("TabContent_" + i, typeof(RectTransform));
                 go.transform.SetParent(content, false);
@@ -791,10 +1430,14 @@ namespace BitRunner.Game
                 _tabContents[i] = go;
             }
 
-            BuildMerchantContent(_tabContents[0].transform);
-            BuildPodContent(_tabContents[1].transform);
-            BuildMineContent(_tabContents[2].transform);
-            BuildCraftContent(_tabContents[3].transform);
+            BuildMerchantContent(_tabContents[(int)BaseTab.Merchant].transform);
+            BuildPodContent(_tabContents[(int)BaseTab.Pod].transform);
+            BuildMineContent(_tabContents[(int)BaseTab.Mine].transform);
+            BuildCraftContent(_tabContents[(int)BaseTab.Craft].transform);
+            BuildCpuContent(_tabContents[(int)BaseTab.Cpu].transform);
+            BuildInsuranceContent(_tabContents[(int)BaseTab.Insurance].transform);
+            BuildStorageContent(_tabContents[(int)BaseTab.Storage].transform);
+            BuildCommsContent(_tabContents[(int)BaseTab.Comms].transform);
         }
 
         private void BuildMerchantContent(Transform content)
@@ -807,9 +1450,17 @@ namespace BitRunner.Game
             CreateCenteredText(_discardBinRect, "Label", "丢弃", 9, MutedColor, Vector2.zero, new Vector2(84f, 22f));
         }
 
+        /// <summary>
+        /// 潜网舱面板。舱体宽 = 等级（1–5），密钥体积随档递增（1/2/4/6/9 格），
+        /// 所以升到 Lv.5 才能把 3×3 的核心密钥连同催化剂一起摆进去。
+        /// 网格高度封顶 3 行 —— 再高就会压到下面的说明文字。
+        /// </summary>
         private void BuildPodContent(Transform content)
         {
-            _podRect = CreateBagRect(content, new Vector2(0f, 15f), new Vector2(3f * BagView.CellSize, 3f * BagView.CellSize));
+            _podRect = CreateBagRect(
+                content,
+                new Vector2(0f, 32f),
+                new Vector2(_pod.Width * BagView.CellSize, _pod.Height * BagView.CellSize));
             _podView = _podRect.gameObject.AddComponent<BagView>();
             _podView.Initialize(_pod.Grid, _podRect, _palette);
 
@@ -836,7 +1487,10 @@ namespace BitRunner.Game
 
         private void BuildCraftContent(Transform content)
         {
-            _craftRect = CreateBagRect(content, new Vector2(0f, 15f), new Vector2(3f * BagView.CellSize, 3f * BagView.CellSize));
+            _craftRect = CreateBagRect(
+                content,
+                new Vector2(0f, 32f),
+                new Vector2(_craft.Width * BagView.CellSize, _craft.Height * BagView.CellSize));
             _craftView = _craftRect.gameObject.AddComponent<BagView>();
             _craftView.Initialize(_craft.Grid, _craftRect, _palette);
 
@@ -851,8 +1505,155 @@ namespace BitRunner.Game
             _craftUpgradeText = _craftUpgradeRect.Find("Label").GetComponent<Text>();
         }
 
-        private void BuildDeploy(Transform canvas)
+        /// <summary>
+        /// 中央处理器面板。芯片网格是「背包之外的第二块格子」，所以换入换出全部用拖拽。
+        /// 网格尺寸随 CPU 等级变化，升级后要 Rebind 才能重画格子。
+        /// </summary>
+        private void BuildCpuContent(Transform content)
         {
+            _cpuRect = CreateBagRect(
+                content,
+                new Vector2(0f, 30f),
+                new Vector2(_cpu.Width * BagView.CellSize, _cpu.Height * BagView.CellSize));
+            _cpuView = _cpuRect.gameObject.AddComponent<BagView>();
+            _cpuView.Initialize(_cpu.Grid, _cpuRect, _palette, _catalog);
+
+            _cpuInfo = CreateText(content, "Info", string.Empty, 8, MutedColor, new Vector2(8f, -72f), new Vector2(154f, 42f), TextAnchor.UpperLeft);
+
+            _cpuUpgradeRect = CreateButton(content, "CpuUpgrade", "升级", new Vector2(8f, -114f), new Vector2(154f, 22f), AccentColor);
+            _cpuUpgradeImage = _cpuUpgradeRect.GetComponent<Image>();
+            _cpuUpgradeText = _cpuUpgradeRect.Find("Label").GetComponent<Text>();
+        }
+
+        /// <summary>保险中枢只改容量，格子本身在主界面「保险箱」面板上，所以这里只放说明与升级。</summary>
+        private void BuildInsuranceContent(Transform content)
+        {
+            _insuranceInfo = CreateText(content, "Info", string.Empty, 8, MutedColor, new Vector2(8f, -10f), new Vector2(154f, 90f), TextAnchor.UpperLeft);
+
+            _insuranceUpgradeRect = CreateButton(content, "InsuranceUpgrade", "升级", new Vector2(8f, -114f), new Vector2(154f, 22f), AccentColor);
+            _insuranceUpgradeImage = _insuranceUpgradeRect.GetComponent<Image>();
+            _insuranceUpgradeText = _insuranceUpgradeRect.Find("Label").GetComponent<Text>();
+        }
+
+        /// <summary>仓储设备同理：仓库在主界面上，这里只放容量与升级。</summary>
+        private void BuildStorageContent(Transform content)
+        {
+            _storageInfo = CreateText(content, "Info", string.Empty, 8, MutedColor, new Vector2(8f, -10f), new Vector2(154f, 90f), TextAnchor.UpperLeft);
+
+            _storageUpgradeRect = CreateButton(content, "StorageUpgrade", "升级", new Vector2(8f, -114f), new Vector2(154f, 22f), AccentColor);
+            _storageUpgradeImage = _storageUpgradeRect.GetComponent<Image>();
+            _storageUpgradeText = _storageUpgradeRect.Find("Label").GetComponent<Text>();
+        }
+
+        /// <summary>
+        /// 通讯中枢面板。格子装的是**通讯上行链路**（1 / 2 / 4 / 6 格），
+        /// 一条链路 = 一位能联系的 NPC = 一条能挂任务的信道。
+        /// 具体谁在货架上、任务怎么接，都放在弹层里——138px 的面板塞不下十行。
+        /// </summary>
+        private void BuildCommsContent(Transform content)
+        {
+            _commsRect = CreateBagRect(
+                content,
+                new Vector2(0f, 30f),
+                new Vector2(_comms.Width * BagView.CellSize, _comms.Height * BagView.CellSize));
+            _commsView = _commsRect.gameObject.AddComponent<BagView>();
+            _commsView.Initialize(_comms.Grid, _commsRect, _palette);
+
+            _commsInfo = CreateText(content, "Info", string.Empty, 8, MutedColor, new Vector2(8f, -72f), new Vector2(154f, 40f), TextAnchor.UpperLeft);
+
+            _commsTasksRect = CreateButton(content, "CommsTasks", "联系", new Vector2(8f, -114f), new Vector2(73f, 22f), new Color32(38, 44, 52, 255));
+            _commsTasksRect.Find("Label").GetComponent<Text>().text = "联系";
+
+            RectTransform upgrade = CreateButton(content, "CommsUpgrade", "升级", new Vector2(89f, -114f), new Vector2(73f, 22f), AccentColor);
+            _commsUpgradeImage = upgrade.GetComponent<Image>();
+            _commsUpgradeText = upgrade.Find("Label").GetComponent<Text>();
+            _commsUpgradeRect = upgrade;
+        }
+
+        /// <summary>
+        /// 通讯弹层：左边是「谁在线」，右边是选中那位的货架与任务。
+        /// 行数都是固定的（4 / 3 / 3），用不到的 SetActive(false)——
+        /// 运行时增删 GameObject 会让点击区域和刷新逻辑对不上。
+        /// </summary>
+        private void BuildCommsOverlay(Transform canvas)
+        {
+            _commsOverlay = new GameObject("CommsOverlay", typeof(RectTransform), typeof(Image));
+            _commsOverlay.transform.SetParent(canvas, false);
+
+            var rect = (RectTransform)_commsOverlay.transform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            _commsOverlay.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.78f);
+
+            RectTransform box = CreateCenteredPanel(
+                _commsOverlay.transform, "Box", Vector2.zero, new Vector2(400f, 292f), PanelColor);
+            AddBorder(box, new Color32(67, 59, 47, 255));
+
+            CreateText(box, "Header", "通讯中枢 // COMMS", 9, new Color32(164, 146, 112, 255),
+                new Vector2(10f, -6f), new Vector2(300f, 12f), TextAnchor.UpperLeft);
+
+            _commsOverlayTitle = CreateText(box, "Title", string.Empty, 8, TextColor,
+                new Vector2(10f, -22f), new Vector2(380f, 12f), TextAnchor.UpperLeft);
+            _commsOverlaySubtitle = CreateText(box, "Subtitle", string.Empty, 8, MutedColor,
+                new Vector2(10f, -36f), new Vector2(380f, 12f), TextAnchor.UpperLeft);
+
+            // 四位联系人，每人一行。
+            for (int i = 0; i < 4; i++)
+            {
+                float y = -52f - i * 17f;
+                RectTransform row = CreateRow(box, "Npc" + i, new Vector2(10f, y), new Vector2(380f, 16f));
+                _commsNpcRows.Add(row);
+                _commsNpcLabels.Add(row.Find("Label").GetComponent<Text>());
+            }
+
+            CreateText(box, "ShopHeader", "货架（点击购买）", 8, new Color32(164, 146, 112, 255),
+                new Vector2(10f, -122f), new Vector2(380f, 12f), TextAnchor.UpperLeft);
+
+            for (int i = 0; i < 3; i++)
+            {
+                float y = -136f - i * 17f;
+                RectTransform row = CreateRow(box, "Shop" + i, new Vector2(10f, y), new Vector2(380f, 16f));
+                _commsShopRows.Add(row);
+                _commsShopLabels.Add(row.Find("Label").GetComponent<Text>());
+                _commsShopActions.Add(row.Find("Action").GetComponent<Text>());
+            }
+
+            CreateText(box, "QuestHeader", "任务", 8, new Color32(164, 146, 112, 255),
+                new Vector2(10f, -190f), new Vector2(380f, 12f), TextAnchor.UpperLeft);
+
+            for (int i = 0; i < 3; i++)
+            {
+                float y = -204f - i * 17f;
+                RectTransform row = CreateRow(box, "Quest" + i, new Vector2(10f, y), new Vector2(380f, 16f));
+                _commsQuestRows.Add(row);
+                _commsQuestLabels.Add(row.Find("Label").GetComponent<Text>());
+                _commsQuestActions.Add(row.Find("Action").GetComponent<Text>());
+            }
+
+            CreateCenteredText(box, "Hint", "点击空白处关闭", 8, MutedColor,
+                new Vector2(0f, -138f), new Vector2(380f, 12f));
+
+            _commsOverlay.SetActive(false);
+        }
+
+        private static RectTransform CreateRow(Transform parent, string name, Vector2 topLeft, Vector2 size)
+        {
+            RectTransform row = CreateAnchoredPanel(parent, name, topLeft, size, new Color32(32, 37, 44, 255));
+
+            Text label = CreateText(row, "Label", string.Empty, 8, TextColor,
+                new Vector2(4f, 0f), new Vector2(size.x - 90f, size.y), TextAnchor.MiddleLeft);
+            label.raycastTarget = false;
+
+            Text action = CreateText(row, "Action", string.Empty, 8, AccentColor,
+                new Vector2(size.x - 86f, 0f), new Vector2(82f, size.y), TextAnchor.MiddleRight);
+            action.raycastTarget = false;
+
+            return row;
+        }
+
+        private void BuildDeploy(Transform canvas)        {
             _deployRect = CreateCenteredPanel(canvas, "Deploy", new Vector2(215f, 152f), new Vector2(160f, 28f), AccentColor);
             AddBorder(_deployRect, new Color32(96, 142, 186, 255));
             _deployImage = _deployRect.GetComponent<Image>();
@@ -888,11 +1689,23 @@ namespace BitRunner.Game
 
             _drag = gameObject.AddComponent<BaseDragInteraction>();
             _drag.Initialize(_sources, _catalog, _merchant, _campaign, _palette, _canvasRect, null, _discardBinRect);
+
+            // 被任务占用的上行链路必须留在通讯中枢里：拖拽、快速移动、右键旋转全部拦下。
+            _drag.CanTake = (source, item) =>
+            {
+                if (source == null || source.Bag != _comms.Grid)
+                {
+                    return null;
+                }
+
+                string blocked;
+                return _comms.CanModify(item.InstanceId, out blocked) ? null : blocked;
+            };
+
             _drag.Message += OnDragMessage;
             _drag.Changed += OnDragChanged;
             _drag.ItemClicked += OnItemClicked;
-            _drag.QuickMoveTarget = (source, item) =>
-            {
+            _drag.QuickMoveTarget = (source, item) =>            {
                 if (source == null)
                 {
                     return null;
@@ -1053,7 +1866,7 @@ namespace BitRunner.Game
             _tooltipText.text = text;
             const float tooltipWidth = 240f;
             _tooltipText.rectTransform.sizeDelta = new Vector2(tooltipWidth - 16f, 200f);
-            float tooltipHeight = Mathf.Clamp(_tooltipText.preferredHeight + 14f, 120f, 250f);
+            float tooltipHeight = Mathf.Clamp(_tooltipText.preferredHeight + 14f, 120f, 300f);
             _tooltipRect.sizeDelta = new Vector2(tooltipWidth, tooltipHeight);
             _tooltipText.rectTransform.sizeDelta = new Vector2(tooltipWidth - 16f, tooltipHeight - 12f);
 
@@ -1128,6 +1941,13 @@ namespace BitRunner.Game
                 return;
             }
 
+            if (source.Name == "CPU")
+            {
+                SetMessage("中央处理器：芯片可随时拔插，效果从下一场战斗生效。"
+                           + " 当前加成 " + GameSession.CpuModifiers.Describe() + "。");
+                return;
+            }
+
             if (source.Bag != _bag)
             {
                 SetMessage("只能使用背包中的物品。");
@@ -1181,6 +2001,20 @@ namespace BitRunner.Game
             return FacilityUpgrade.RequirementText(_catalog, bitCost, materials);
         }
 
+        /// <summary>
+        /// 升级失败时的提示。需求行放在底部消息栏而不是设施信息框——信息框只有 154×36，
+        /// 追加「(有 N)」会把文字挤到按钮上。
+        /// </summary>
+        private string UpgradeFailureText(string error, int bitCost, string[] materials, bool canUpgrade)
+        {
+            if (!canUpgrade || string.IsNullOrEmpty(error))
+            {
+                return error;
+            }
+
+            return error + " 需求：" + FacilityUpgrade.RequirementText(_catalog, GameSession.Stash, bitCost, materials);
+        }
+
         private void BuildContainerWindows()
         {
             _containerWindows = gameObject.AddComponent<FloatingWindowManager>();
@@ -1189,7 +2023,8 @@ namespace BitRunner.Game
             _drag.TryActivateItem = (source, instanceId) =>
                 _containerWindows != null && _containerWindows.TryOpen(source, instanceId);
             _drag.PointerBlocked = screen =>
-                _containerWindows != null && _containerWindows.IsPointerOverChrome(screen);
+                (_containerWindows != null && _containerWindows.IsPointerOverChrome(screen))
+                || (_commsOverlay != null && _commsOverlay.activeSelf);
         }
 
         private void BuildEndOverlay(Transform canvas)
@@ -1405,6 +2240,11 @@ namespace BitRunner.Game
                     return new Color32(200, 170, 120, 255);
                 case ItemCategory.Container:
                     return new Color32(150, 118, 82, 255);
+
+                // 上行链路刻意不用 Key 的紫色：它们是两种完全不同的东西，
+                // 同色会让人以为「通讯链路能开潜网舱」。
+                case ItemCategory.Uplink:
+                    return new Color32(226, 118, 164, 255);
                 default:
                     return new Color32(140, 150, 160, 255);
             }

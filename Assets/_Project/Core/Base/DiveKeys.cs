@@ -17,6 +17,12 @@ namespace BitRunner.Core
         public string[] EnemyPool;
         public string[] ConsumeItemIds;
         public bool ConsumeKey;
+
+        /// <summary>本地点掉落的最低档位，1 表示不限。</summary>
+        public int TierMin = 1;
+
+        /// <summary>档内比例，长度 = 档位跨度的档数，从 <see cref="TierMin"/> 往上排。</summary>
+        public int[] TierWeights;
     }
 
     public sealed class DiveKeyDefinition
@@ -32,6 +38,8 @@ namespace BitRunner.Core
         public int SeedOffset;
         public string[] LootPool;
         public string[] EnemyPool;
+        public int TierMin = 1;
+        public int[] TierWeights;
     }
 
     public sealed class DiveRecipe
@@ -47,6 +55,8 @@ namespace BitRunner.Core
         public int SeedOffset;
         public string[] LootPool;
         public string[] EnemyPool;
+        public int TierMin = 1;
+        public int[] TierWeights;
     }
 
     public static class DiveKeyLibrary
@@ -57,16 +67,31 @@ namespace BitRunner.Core
             "heat_suit", "filter", "respirator", "toxin_dart", "vacuum",
             "scrap", "wire", "circuit", "alloy", "ammo",
             "overclock_core", "coolant_loop", "targeting_array", "ram_piston",
-            "corrosive_dart", "fence_module", "parts_case", "med_pouch"
+            "corrosive_dart", "fence_module", "parts_case", "med_pouch",
+            "key_box", "servo", "capacitor", "coolant_tank"
         };
 
+        /// <summary>
+        /// 军用及以上地点共用的全量掉落池。**T4/T5 的内容全放在这里**：
+        /// 具体某个地点能掉哪几档由 `DiveKeyDefinition.TierMin` + `TierWeights` 过滤，
+        /// 不需要为每个地点再抄一份池子。
+        /// </summary>
         private static readonly string[] RichLootPool =
         {
             "coin", "patch", "scrap_blade", "buckler", "jammer", "chip", "idol", "rod",
             "heat_suit", "filter", "respirator", "toxin_dart", "vacuum",
             "scrap", "wire", "circuit", "alloy", "ammo", "dive_military", "dive_signal",
             "overclock_core", "coolant_loop", "targeting_array", "ram_piston",
-            "corrosive_dart", "fence_module", "parts_case", "med_pouch"
+            "corrosive_dart", "fence_module", "parts_case", "med_pouch",
+            "key_box", "servo", "capacitor", "coolant_tank",
+            "superalloy", "optic_fiber", "plasma_cell", "dive_deep",
+            "singularity_core", "monopole_wire", "corona_shard", "dive_core",
+            "rail_lance", "plasma_cutter", "flechette_gun", "reactor_maul",
+            "reactive_plating", "ablative_shell", "hazmat_rig",
+            "nano_stitcher", "overdrive_relay", "targeting_lattice",
+            "polymer_dagger", "singularity_hammer", "arc_reaver", "void_needler",
+            "corona_aegis", "phase_weave", "void_suit",
+            "full_repair_kit", "null_field_generator", "plasma_furnace"
         };
 
         private static readonly string[] WildLootPool =
@@ -79,10 +104,41 @@ namespace BitRunner.Core
             "wild_dog", "squirrel"
         };
 
-        private static readonly string[] StandardEnemyPool =
+        /// <summary>T1–T2 的敌人。基础潜网用它，保证开局第一层不会撞上重装守卫以外的硬骨头。</summary>
+        private static readonly string[] BasicEnemyPool =
         {
             "scavenger", "enforcer", "drone", "bulwark", "shocker",
             "hacker", "poisoner", "suffocator", "raider"
+        };
+
+        /// <summary>T1–T3。军用与毒雾带 T2 新兵，前半段仍然打得动。</summary>
+        private static readonly string[] MilitaryEnemyPool =
+        {
+            "scavenger", "enforcer", "drone", "bulwark", "shocker",
+            "hacker", "poisoner", "suffocator", "raider",
+            "ripper", "stalker_drone", "gas_hound", "bruiser",
+            "arc_trooper", "warden", "corroder", "piston_brute"
+        };
+
+        /// <summary>T3–T4。信号与数据金库不该再刷野犬，改用中高档的专职单位。</summary>
+        private static readonly string[] SignalEnemyPool =
+        {
+            "arc_trooper", "warden", "corroder", "piston_brute",
+            "rail_sniper", "plasma_guard", "flechette_trooper", "hazmat_executor"
+        };
+
+        /// <summary>T4–T5。深空潜网的门槛单位。</summary>
+        private static readonly string[] DeepEnemyPool =
+        {
+            "rail_sniper", "plasma_guard", "flechette_trooper", "hazmat_executor",
+            "arc_reaver_unit", "void_stalker", "singularity_guard", "polymer_assassin"
+        };
+
+        /// <summary>T5 + Boss。核心潜网是终点，日冕战斗机甲在这里等待。</summary>
+        private static readonly string[] CoreEnemyPool =
+        {
+            "arc_reaver_unit", "void_stalker", "singularity_guard", "polymer_assassin",
+            "corona_mech"
         };
 
         private static readonly DiveKeyDefinition[] Definitions =
@@ -99,7 +155,9 @@ namespace BitRunner.Core
                 HazardCount = 1,
                 SeedOffset = 19,
                 LootPool = WildLootPool,
-                EnemyPool = WildEnemyPool
+                EnemyPool = WildEnemyPool,
+                TierMin = 1,
+                TierWeights = new[] { 100 }
             },
             new DiveKeyDefinition
             {
@@ -112,7 +170,9 @@ namespace BitRunner.Core
                 LootCount = 9,
                 HazardCount = 6,
                 LootPool = BaseLootPool,
-                EnemyPool = StandardEnemyPool
+                EnemyPool = BasicEnemyPool,
+                TierMin = 1,
+                TierWeights = new[] { 40, 40, 20 }
             },
             new DiveKeyDefinition
             {
@@ -126,7 +186,9 @@ namespace BitRunner.Core
                 HazardCount = 7,
                 SeedOffset = 131,
                 LootPool = RichLootPool,
-                EnemyPool = StandardEnemyPool
+                EnemyPool = MilitaryEnemyPool,
+                TierMin = 2,
+                TierWeights = new[] { 50, 35, 15 }
             },
             new DiveKeyDefinition
             {
@@ -140,7 +202,41 @@ namespace BitRunner.Core
                 HazardCount = 8,
                 SeedOffset = 257,
                 LootPool = RichLootPool,
-                EnemyPool = StandardEnemyPool
+                EnemyPool = SignalEnemyPool,
+                TierMin = 3,
+                TierWeights = new[] { 70, 30 }
+            },
+            new DiveKeyDefinition
+            {
+                ItemId = "dive_deep",
+                DungeonName = "深空潜网",
+                Permanent = true,
+                Width = 8,
+                Height = 8,
+                EnemyCount = 9,
+                LootCount = 15,
+                HazardCount = 10,
+                SeedOffset = 331,
+                LootPool = RichLootPool,
+                EnemyPool = DeepEnemyPool,
+                TierMin = 4,
+                TierWeights = new[] { 60, 40 }
+            },
+            new DiveKeyDefinition
+            {
+                ItemId = "dive_core",
+                DungeonName = "核心潜网",
+                Permanent = true,
+                Width = 8,
+                Height = 8,
+                EnemyCount = 11,
+                LootCount = 18,
+                HazardCount = 12,
+                SeedOffset = 419,
+                LootPool = RichLootPool,
+                EnemyPool = CoreEnemyPool,
+                TierMin = 5,
+                TierWeights = new[] { 100 }
             }
         };
 
@@ -157,7 +253,9 @@ namespace BitRunner.Core
                 LootCount = 11,
                 HazardCount = 6,
                 SeedOffset = 37,
-                LootPool = RichLootPool
+                LootPool = RichLootPool,
+                TierMin = 2,
+                TierWeights = new[] { 50, 50 }
             },
             new DiveRecipe
             {
@@ -170,7 +268,9 @@ namespace BitRunner.Core
                 LootCount = 14,
                 HazardCount = 5,
                 SeedOffset = 73,
-                LootPool = RichLootPool
+                LootPool = RichLootPool,
+                TierMin = 3,
+                TierWeights = new[] { 70, 30 }
             },
             new DiveRecipe
             {
@@ -183,7 +283,9 @@ namespace BitRunner.Core
                 LootCount = 10,
                 HazardCount = 9,
                 SeedOffset = 109,
-                LootPool = RichLootPool
+                LootPool = RichLootPool,
+                TierMin = 2,
+                TierWeights = new[] { 50, 35, 15 }
             },
             new DiveRecipe
             {
@@ -196,13 +298,44 @@ namespace BitRunner.Core
                 LootCount = 12,
                 HazardCount = 8,
                 SeedOffset = 149,
-                LootPool = RichLootPool
+                LootPool = RichLootPool,
+                TierMin = 3,
+                TierWeights = new[] { 30, 50, 20 },
+                EnemyPool = DeepEnemyPool
+            },
+            new DiveRecipe
+            {
+                Id = "core_breach",
+                Name = "核心突入",
+                KeyItemId = "dive_core",
+                RequiredItemIds = new[] { "singularity_core" },
+                ConsumeItemIds = new[] { "singularity_core" },
+                EnemyCount = 13,
+                LootCount = 20,
+                HazardCount = 14,
+                SeedOffset = 461,
+                LootPool = RichLootPool,
+                TierMin = 5,
+                TierWeights = new[] { 100 },
+                EnemyPool = CoreEnemyPool
             }
         };
 
         public static IReadOnlyList<string> BaseLoot
         {
             get { return BaseLootPool; }
+        }
+
+        /// <summary>全部地点（不含配方的变体），供 UI 与测试枚举。</summary>
+        public static IReadOnlyList<DiveKeyDefinition> All
+        {
+            get { return Definitions; }
+        }
+
+        /// <summary>全部配方变体（超频潜网、数据金库……），同样供枚举。</summary>
+        public static IReadOnlyList<DiveRecipe> AllRecipes
+        {
+            get { return Recipes; }
         }
 
         public static bool TryGetKey(string itemId, out DiveKeyDefinition definition)
@@ -248,7 +381,9 @@ namespace BitRunner.Core
                 LootPool = key.LootPool,
                 EnemyPool = key.EnemyPool,
                 ConsumeItemIds = new string[0],
-                ConsumeKey = !key.Permanent
+                ConsumeKey = !key.Permanent,
+                TierMin = key.TierMin,
+                TierWeights = key.TierWeights
             };
 
             DiveRecipe best = null;
@@ -282,6 +417,11 @@ namespace BitRunner.Core
                 plan.HazardCount = best.HazardCount;
                 plan.SeedOffset = best.SeedOffset;
                 plan.LootPool = best.LootPool;
+                if (best.TierWeights != null && best.TierWeights.Length > 0)
+                {
+                    plan.TierMin = best.TierMin;
+                    plan.TierWeights = best.TierWeights;
+                }
                 if (best.EnemyPool != null && best.EnemyPool.Length > 0)
                 {
                     plan.EnemyPool = best.EnemyPool;

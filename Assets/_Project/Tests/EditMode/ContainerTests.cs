@@ -96,7 +96,7 @@ namespace BitRunner.Tests
             PlacedItem moved;
             Assert.IsTrue(target.TryAdd("weapon_crate", catalog.Get("weapon_crate").Shape, out moved));
 
-            ItemTransfer.PreserveContainer(crate, moved);
+            ItemTransfer.PreserveAll(crate, moved);
 
             Assert.AreSame(crate.Container, moved.Container);
         }
@@ -130,6 +130,77 @@ namespace BitRunner.Tests
             StringAssert.Contains("容器：内部 8×10", text);
             StringAssert.Contains("武器", text);
             StringAssert.Contains("标签：", text);
+        }
+
+        [Test]
+        public void ItemSearch_CountsContentsInsideContainer()
+        {
+            ItemCatalog catalog = Catalog();
+            var stash = new BagInventory(6, 5);
+            PlacedItem parts = Add(stash, catalog, "parts_case");
+            var source = new BagInventory(6, 5);
+            PlacedItem scrap = Add(source, catalog, "scrap");
+            PlacedItem wire = Add(source, catalog, "wire");
+            string error;
+            Assert.IsTrue(ContainerOps.TryPut(parts.Container, source, scrap.InstanceId, catalog, out error), error);
+            Assert.IsTrue(ContainerOps.TryPut(parts.Container, source, wire.InstanceId, catalog, out error), error);
+
+            Assert.AreEqual(0, stash.CountOf("scrap"), "顶层统计不应看到容器内容物");
+            Assert.AreEqual(1, ItemSearch.CountOf(stash, "scrap"));
+            Assert.AreEqual(1, ItemSearch.CountOf(stash, "wire"));
+            Assert.IsTrue(ItemSearch.Has(stash, "scrap", 1));
+            Assert.IsFalse(ItemSearch.Has(stash, "scrap", 2));
+        }
+
+        [Test]
+        public void ItemSearch_ConsumesTopLevelBeforeContainer()
+        {
+            ItemCatalog catalog = Catalog();
+            var stash = new BagInventory(6, 5);
+            PlacedItem parts = Add(stash, catalog, "parts_case");
+            var source = new BagInventory(6, 5);
+            PlacedItem inner = Add(source, catalog, "scrap");
+            string error;
+            Assert.IsTrue(ContainerOps.TryPut(parts.Container, source, inner.InstanceId, catalog, out error), error);
+            PlacedItem top = Add(stash, catalog, "scrap");
+
+            Assert.IsTrue(ItemSearch.TryConsume(stash, "scrap", 1));
+            PlacedItem stillThere;
+            Assert.IsFalse(stash.TryGet(top.InstanceId, out stillThere), "顶层废料应优先被消耗");
+            Assert.AreEqual(1, parts.Container.Bag.CountOf("scrap"));
+
+            Assert.IsTrue(ItemSearch.TryConsume(stash, "scrap", 1));
+            Assert.AreEqual(0, parts.Container.Bag.Count);
+            Assert.AreEqual(0, ItemSearch.CountOf(stash, "scrap"));
+        }
+
+        [Test]
+        public void ItemSearch_ConsumeLeavesBagUntouchedWhenShort()
+        {
+            ItemCatalog catalog = Catalog();
+            var stash = new BagInventory(6, 5);
+            Add(stash, catalog, "scrap");
+
+            Assert.IsFalse(ItemSearch.TryConsume(stash, "scrap", 2));
+            Assert.AreEqual(1, stash.CountOf("scrap"));
+            Assert.AreEqual(1, ItemSearch.CountOf(stash, "scrap"));
+        }
+
+        [Test]
+        public void ItemSearch_ConsumeAllIsAtomicAcrossIds()
+        {
+            ItemCatalog catalog = Catalog();
+            var stash = new BagInventory(6, 5);
+            Add(stash, catalog, "scrap");
+
+            var amounts = new System.Collections.Generic.Dictionary<string, int>
+            {
+                { "scrap", 1 },
+                { "wire", 1 }
+            };
+
+            Assert.IsFalse(ItemSearch.TryConsumeAll(stash, amounts));
+            Assert.AreEqual(1, stash.CountOf("scrap"), "整批校验失败时不应扣掉任何材料");
         }
     }
 }

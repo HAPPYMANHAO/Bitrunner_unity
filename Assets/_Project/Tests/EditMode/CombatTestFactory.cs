@@ -37,7 +37,12 @@ namespace BitRunner.Tests
                 Tags = tags,
                 EnergyCost = 0,
                 Shield = block,
-                BonusEnergy = bonusEnergy,
+
+                // 词条 rank 不能超过物品等级，测试里按能量点数抬档。
+                Level = bonusEnergy > 1 ? bonusEnergy : 1,
+                Traits = bonusEnergy > 0
+                    ? new[] { new TraitRef(TraitCatalog.EnergyCell, bonusEnergy) }
+                    : null,
                 Value = value
             };
         }
@@ -86,9 +91,7 @@ namespace BitRunner.Tests
                 Shield = block,
                 Heal = heal,
                 ConsumeOnUse = consume,
-                AppliedStatus = status,
-                StatusTurns = statusTurns,
-                StatusStacks = 1,
+                Traits = StatusTrait(status),
                 Value = 10
             };
         }
@@ -106,11 +109,42 @@ namespace BitRunner.Tests
                 Tags = tags,
                 EnergyCost = apCost,
                 Cooldown = cooldown,
-                AppliedStatus = status,
-                StatusTurns = statusTurns,
-                StatusStacks = 1,
+                Traits = StatusTrait(status),
                 Value = 10
             };
+        }
+
+        private static TraitRef[] StatusTrait(StatusType status)
+        {
+            string traitId;
+            switch (status)
+            {
+                case StatusType.Overload:
+                    traitId = TraitCatalog.SignalJam;
+                    break;
+                case StatusType.ShortCircuit:
+                    traitId = TraitCatalog.ShortCircuitCharge;
+                    break;
+                case StatusType.Cache:
+                    traitId = TraitCatalog.CacheField;
+                    break;
+                case StatusType.Overheat:
+                    traitId = TraitCatalog.OverheatStrike;
+                    break;
+                case StatusType.Corrosion:
+                    traitId = TraitCatalog.CorrosionDose;
+                    break;
+                case StatusType.Nanorepair:
+                    traitId = TraitCatalog.Nanites;
+                    break;
+                case StatusType.Evasion:
+                    traitId = TraitCatalog.EvasionGuard;
+                    break;
+                default:
+                    return null;
+            }
+
+            return new[] { new TraitRef(traitId, 1) };
         }
 
         public static ItemDefinition Loot(string id, int value, string pattern)

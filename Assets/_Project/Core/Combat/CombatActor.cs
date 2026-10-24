@@ -17,6 +17,22 @@ namespace BitRunner.Core
         private readonly List<StatusEffect> _statuses = new List<StatusEffect>();
 
         public CombatActor(string id, string displayName, int maxHp, int baseEnergy, BagInventory bag, bool isPlayer)
+            : this(id, displayName, maxHp, baseEnergy, bag, isPlayer, 0)
+        {
+        }
+
+        /// <param name="armorBase">
+        /// 五系护甲基底（来自 CPU 的 <see cref="TraitEffect.AddArmorBase"/>）。
+        /// 与背包里护甲的被动护甲相加，所以护甲不是「有护甲才有值」，而是自带一层底子。
+        /// </param>
+        public CombatActor(
+            string id,
+            string displayName,
+            int maxHp,
+            int baseEnergy,
+            BagInventory bag,
+            bool isPlayer,
+            int armorBase)
         {
             if (string.IsNullOrEmpty(id))
             {
@@ -39,6 +55,7 @@ namespace BitRunner.Core
             Hp = maxHp;
             BaseEnergy = baseEnergy;
             Energy = baseEnergy;
+            ArmorBase = armorBase > 0 ? armorBase : 0;
             Bag = bag;
             IsPlayer = isPlayer;
         }
@@ -52,6 +69,9 @@ namespace BitRunner.Core
         public int Hp { get; internal set; }
 
         public int BaseEnergy { get; private set; }
+
+        /// <summary>五系护甲基底，来自 CPU 芯片。不会随装备丢失。</summary>
+        public int ArmorBase { get; private set; }
 
         public int Energy { get; internal set; }
 

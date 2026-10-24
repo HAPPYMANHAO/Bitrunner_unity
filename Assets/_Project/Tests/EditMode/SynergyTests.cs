@@ -237,7 +237,7 @@ namespace BitRunner.Tests
         }
 
         [Test]
-        public void AdjacentPlatesBoostPassiveBlock()
+        public void AdjacentPlatesBoostActiveShieldUse()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 CombatTestFactory.Passive("plate", 4, 0, ItemTag.Shield | ItemTag.Armor, "##\n##"));
@@ -245,12 +245,29 @@ namespace BitRunner.Tests
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog);
             CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
 
-            CombatTestFactory.PlaceAt(player, catalog, "plate", 0, 0);
-            CombatTestFactory.PlaceAt(player, catalog, "plate", 2, 0);
+            PlacedItem first = CombatTestFactory.PlaceAt(player, catalog, "plate", 0, 0);
+            PlacedItem second = CombatTestFactory.PlaceAt(player, catalog, "plate", 2, 0);
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
 
-            Assert.AreEqual(14, engine.GetPassiveShield(player));
+            Assert.AreEqual(7, engine.GetShield(player, first));
+            Assert.AreEqual(7, engine.GetShield(player, second));
+        }
+
+        [Test]
+        public void SinglePlateKeepsBaseShield()
+        {
+            ItemCatalog catalog = CombatTestFactory.Catalog(
+                CombatTestFactory.Passive("plate", 4, 0, ItemTag.Shield | ItemTag.Armor, "##\n##"));
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
+
+            PlacedItem plate = CombatTestFactory.PlaceAt(player, catalog, "plate", 0, 0);
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+
+            Assert.AreEqual(4, engine.GetShield(player, plate));
         }
     }
 }

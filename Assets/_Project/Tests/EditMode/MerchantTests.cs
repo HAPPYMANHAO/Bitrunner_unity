@@ -168,13 +168,15 @@ namespace BitRunner.Tests
                 merchant.TrySellToStock(source, item.InstanceId, campaign, Cell.Zero, 0, out value, out error),
                 error);
 
-            Assert.AreEqual(40, value);
-            Assert.AreEqual(40, campaign.Bit);
+            // 收购价是价值的一半（blade 价值 40 → 卖 20），回购价与收购价一致。
+            Assert.AreEqual(Merchant.SaleValue(catalog.Get("blade"), 1), value);
+            Assert.AreEqual(20, value);
+            Assert.AreEqual(20, campaign.Bit);
             Assert.AreEqual(0, source.Count);
             Assert.AreEqual(1, merchant.Stock.Count);
             Assert.AreEqual(1, merchant.Offers.Count);
             Assert.IsTrue(merchant.Offers[0].IsBuyback);
-            Assert.AreEqual(40, merchant.Offers[0].Price);
+            Assert.AreEqual(20, merchant.Offers[0].Price);
 
             var stash = new BagInventory(6, 5);
             PlacedItem bought;
@@ -309,8 +311,9 @@ namespace BitRunner.Tests
             string error;
             Assert.IsTrue(merchant.TrySell(source, item.InstanceId, campaign, out value, out error), error);
 
-            Assert.AreEqual(40, value);
-            Assert.AreEqual(40, campaign.Bit);
+            Assert.AreEqual(Merchant.SaleValue(catalog.Get("blade"), 1), value);
+            Assert.AreEqual(20, value);
+            Assert.AreEqual(20, campaign.Bit);
             Assert.AreEqual(0, source.Count);
         }
 

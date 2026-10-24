@@ -89,7 +89,7 @@ namespace BitRunner.Game
             _catalog = GameSession.Catalog;
             _palette = BuildPalette(_catalog);
             ItemDurability.EnsureBag(GameSession.PlayerBag, _catalog);
-            _player = new CombatActor("player", "跑者", GameSession.ExpeditionMaxHp, 3, GameSession.PlayerBag, true);
+            _player = GameSession.CreatePlayerActor();
             if (GameSession.ExpeditionHp > 0)
             {
                 _player.SetHp(GameSession.ExpeditionHp);
@@ -740,7 +740,7 @@ namespace BitRunner.Game
                 synergy);
             const float tooltipWidth = 240f;
             _tooltipText.rectTransform.sizeDelta = new Vector2(tooltipWidth - 16f, 200f);
-            float tooltipHeight = Mathf.Clamp(_tooltipText.preferredHeight + 14f, 120f, 250f);
+            float tooltipHeight = Mathf.Clamp(_tooltipText.preferredHeight + 14f, 120f, 300f);
             _tooltipRect.sizeDelta = new Vector2(tooltipWidth, tooltipHeight);
             _tooltipText.rectTransform.sizeDelta = new Vector2(tooltipWidth - 16f, tooltipHeight - 12f);
 

@@ -122,15 +122,17 @@ namespace BitRunner.Tests
                 new ItemDefinition
                 {
                     Id = "core",
+                    Level = 2,
                     DisplayName = "core",
                     Category = ItemCategory.Tool,
                     Activation = ItemActivation.Passive,
                     Shape = ItemShape.Parse("#"),
                     Tags = ItemTag.Chip | ItemTag.Energy,
-                    BonusEnergy = 2,
-                    TurnStartSelfStatus = StatusType.Overload,
-                    TurnStartSelfStatusTurns = 1,
-                    TurnStartSelfStatusStacks = 1
+                    Traits = new[]
+                    {
+                        new TraitRef(TraitCatalog.EnergyCell, 2),
+                        new TraitRef(TraitCatalog.OverloadLoad, 1)
+                    }
                 });
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "core");
@@ -158,8 +160,7 @@ namespace BitRunner.Tests
                     Activation = ItemActivation.Passive,
                     Shape = ItemShape.Parse("##"),
                     Tags = ItemTag.Cooling,
-                    TurnStartCleanseStatus = StatusType.Overload,
-                    TurnStartCleanseStacks = 1
+                    Traits = new[] { new TraitRef(TraitCatalog.OverloadPurge, 1) }
                 });
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "loop");

@@ -1237,7 +1237,7 @@ namespace BitRunner.Game
             _itemTooltipText.text = ItemText.Describe(definition, item, _bag.CountOf(definition.AmmoItemId));
             const float tooltipWidth = 240f;
             _itemTooltipText.rectTransform.sizeDelta = new Vector2(tooltipWidth - 16f, 200f);
-            float tooltipHeight = Mathf.Clamp(_itemTooltipText.preferredHeight + 14f, 120f, 250f);
+            float tooltipHeight = Mathf.Clamp(_itemTooltipText.preferredHeight + 14f, 120f, 300f);
             _itemTooltipRect.sizeDelta = new Vector2(tooltipWidth, tooltipHeight);
             _itemTooltipText.rectTransform.sizeDelta = new Vector2(tooltipWidth - 16f, tooltipHeight - 12f);
 
@@ -1379,19 +1379,15 @@ namespace BitRunner.Game
                 parts.Add("治疗 " + definition.Heal);
             }
 
-            if (definition.BonusEnergy > 0)
-            {
-                parts.Add("能量 +" + definition.BonusEnergy);
-            }
-
-            if (definition.AppliedStatus != StatusType.None)
-            {
-                parts.Add("附加 " + ItemText.StatusName(definition.AppliedStatus));
-            }
-
             if (definition.Activation == ItemActivation.Active && definition.EnergyCost > 0)
             {
                 parts.Add("消耗 " + definition.EnergyCost + " 能量");
+            }
+
+            IReadOnlyList<string> traits = ItemText.TraitLines(definition);
+            for (int i = 0; i < traits.Count; i++)
+            {
+                parts.Add(traits[i]);
             }
 
             parts.Add("尺寸 " + definition.Shape.Width + "x" + definition.Shape.Height);

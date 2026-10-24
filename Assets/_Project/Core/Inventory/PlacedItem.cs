@@ -31,6 +31,13 @@ namespace BitRunner.Core
 
         public int Durability { get; internal set; }
 
+        /// <summary>
+        /// 探索出发时就带在身上的物品标记。阵亡清算只保留带这个标记的东西。
+        /// 物品在背包与容器之间移动时会被重建成新实例，所以标记必须跟着
+        /// <see cref="ItemTransfer.PreserveAll"/> 一起搬运。
+        /// </summary>
+        public bool ExpeditionBound { get; internal set; }
+
         public ItemContainer Container { get; internal set; }
 
         public ItemShape Shape

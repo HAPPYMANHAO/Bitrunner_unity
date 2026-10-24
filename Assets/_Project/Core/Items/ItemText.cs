@@ -31,6 +31,8 @@ namespace BitRunner.Core
                     return "行动";
                 case ItemCategory.Container:
                     return "容器";
+                case ItemCategory.Uplink:
+                    return "上行链路";
                 default:
                     return "物品";
             }
@@ -205,11 +207,6 @@ namespace BitRunner.Core
                 stats.Add("恢复 " + definition.Heal + " 生命");
             }
 
-            if (definition.BonusEnergy > 0)
-            {
-                stats.Add("能量上限 +" + definition.BonusEnergy);
-            }
-
             if (item != null)
             {
                 int durability = ItemDurability.Current(item, definition);
@@ -232,32 +229,6 @@ namespace BitRunner.Core
             }
 
             var specials = new List<string>();
-            if (definition.AppliedStatus != StatusType.None)
-            {
-                string timing = definition.Target == ItemTarget.Self ? "使用时施加" : "攻击时施加";
-                specials.Add(timing + " " + StatusName(definition.AppliedStatus)
-                    + " " + definition.StatusStacks + " 层（持续 "
-                    + definition.StatusTurns + " 回合）");
-            }
-
-            if (definition.TurnStartSelfStatus != StatusType.None)
-            {
-                specials.Add("每回合开始获得 " + StatusName(definition.TurnStartSelfStatus)
-                    + " " + definition.TurnStartSelfStatusStacks + " 层（持续 "
-                    + definition.TurnStartSelfStatusTurns + " 回合）");
-            }
-
-            if (definition.TurnStartCleanseStatus != StatusType.None)
-            {
-                specials.Add("每回合开始清除 " + definition.TurnStartCleanseStacks
-                    + " 层 " + StatusName(definition.TurnStartCleanseStatus));
-            }
-
-            if (definition.ShieldToDamageDivisor > 0)
-            {
-                specials.Add("护盾转伤：每 " + definition.ShieldToDamageDivisor + " 点护盾 +1 伤害");
-            }
-
             if (definition.ConsumeOnUse)
             {
                 specials.Add("使用后消耗");
@@ -269,6 +240,16 @@ namespace BitRunner.Core
                 for (int i = 0; i < specials.Count; i++)
                 {
                     builder.Append('\n').Append("· ").Append(specials[i]);
+                }
+            }
+
+            var traitLines = TraitLines(definition);
+            if (traitLines.Count > 0)
+            {
+                builder.Append('\n').Append("词条：");
+                for (int i = 0; i < traitLines.Count; i++)
+                {
+                    builder.Append('\n').Append("· ").Append(traitLines[i]);
                 }
             }
 
@@ -375,6 +356,8 @@ namespace BitRunner.Core
                     return "瞄准";
                 case ItemTag.Container:
                     return "容器";
+                case ItemTag.CpuChip:
+                    return "芯片槽";
                 default:
                     return "无";
             }
@@ -399,6 +382,7 @@ namespace BitRunner.Core
             AppendTag(names, tags, ItemTag.Drone);
             AppendTag(names, tags, ItemTag.Targeting);
             AppendTag(names, tags, ItemTag.Container);
+            AppendTag(names, tags, ItemTag.CpuChip);
             return names.Count == 0 ? "无" : string.Join(" / ", names);
         }
 
@@ -414,6 +398,34 @@ namespace BitRunner.Core
         {
             var lines = new List<string>();
             AppendTagEffects(lines, definition);
+            return lines;
+        }
+
+        public static IReadOnlyList<string> TraitLines(ItemDefinition definition)
+        {
+            var lines = new List<string>();
+            if (definition == null || definition.Traits == null)
+            {
+                return lines;
+            }
+
+            for (int i = 0; i < definition.Traits.Length; i++)
+            {
+                TraitRef reference = definition.Traits[i];
+                TraitDefinition trait;
+                if (!TraitCatalog.Default.TryGet(reference.TraitId, out trait))
+                {
+                    continue;
+                }
+
+                int rank = definition.GetTraitRank(reference.TraitId);
+                string body = string.Format(
+                    trait.DescriptionFormat,
+                    trait.AmountAtRank(rank),
+                    trait.ConditionAtRank(rank));
+                lines.Add(trait.DisplayName + " " + RankText(rank) + "：" + body);
+            }
+
             return lines;
         }
 

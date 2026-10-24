@@ -109,16 +109,19 @@ namespace BitRunner.Core
                 return 100 + block;
             }
 
-            if (definition.AppliedStatus != StatusType.None)
+            StatusType appliedStatus;
+            int statusStacks;
+            int statusTurns;
+            if (engine.Traits.TryGetOnUseStatus(definition, out appliedStatus, out statusStacks, out statusTurns))
             {
-                BuffDefinition buff = BuffLibrary.Get(definition.AppliedStatus);
+                BuffDefinition buff = BuffLibrary.Get(appliedStatus);
                 if (buff != null && buff.IsDebuff)
                 {
-                    return 50 + definition.StatusStacks * 10
-                           + target.GetStatusStacks(definition.AppliedStatus) * 5;
+                    return 50 + statusStacks * 10
+                           + target.GetStatusStacks(appliedStatus) * 5;
                 }
 
-                return 40 + definition.StatusStacks * 5;
+                return 40 + statusStacks * 5;
             }
 
             return 0;

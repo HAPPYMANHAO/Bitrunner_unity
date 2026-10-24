@@ -72,6 +72,97 @@ namespace BitRunner.Core
             return _items.TryGetValue(instanceId, out item);
         }
 
+        /// <summary>
+        /// 原地换尺寸（仓储设备 / 保险网络中枢扩容用）。
+        ///
+        /// 物品实例本身不动，只把占位重排到新网格上——容器内容物、耐久、绑定标记全部原样保留。
+        /// 刻意做成「原地」而不是返回新对象：<see cref="ItemBitWallet"/>、`BagView`、拖拽源
+        /// 都持有这个实例的引用，换对象会让比特写进旧仓库、界面继续显示旧格子。
+        ///
+        /// 新格子放不下任何一件物品时整体回滚并返回 false（绝不静默丢东西）。
+        /// </summary>
+        public bool ResizeTo(int width, int height)
+        {
+            if (width == Grid.Width && height == Grid.Height)
+            {
+                return true;
+            }
+
+            var next = new BagGrid(width, height);
+            var items = new List<PlacedItem>(_items.Values);
+
+            // 大件优先：先放 2×2 再放 1×1，否则小件会把位置占碎，大件反而无处落脚。
+            items.Sort(CompareByFootprint);
+
+            var previous = new List<Cell>(items.Count);
+            var previousRotation = new List<int>(items.Count);
+            for (int i = 0; i < items.Count; i++)
+            {
+                previous.Add(items[i].Origin);
+                previousRotation.Add(items[i].Rotation);
+                if (TryPlaceInto(next, items[i]))
+                {
+                    continue;
+                }
+
+                for (int j = i; j >= 0; j--)
+                {
+                    items[j].Origin = previous[j];
+                    items[j].Rotation = previousRotation[j];
+                }
+
+                return false;
+            }
+
+            Grid = next;
+            return true;
+        }
+
+        private static int CompareByFootprint(PlacedItem left, PlacedItem right)
+        {
+            int cells = right.BaseShape.CellCount.CompareTo(left.BaseShape.CellCount);
+            return cells != 0 ? cells : left.InstanceId.CompareTo(right.InstanceId);
+        }
+
+        private static bool TryPlaceInto(BagGrid grid, PlacedItem item)
+        {
+            // 原位置原朝向能用就完全不动，扩容时绝大多数物品走这条分支。
+            if (grid.CanPlace(item.Shape, item.Origin))
+            {
+                grid.Place(item.InstanceId, item.Shape, item.Origin);
+                return true;
+            }
+
+            int rotations = item.Rotatable ? 4 : 1;
+            for (int rotation = 0; rotation < rotations; rotation++)
+            {
+                ItemShape shape = item.BaseShape.Rotate(rotation);
+                if (shape.Width > grid.Width || shape.Height > grid.Height)
+                {
+                    continue;
+                }
+
+                for (int y = 0; y <= grid.Height - shape.Height; y++)
+                {
+                    for (int x = 0; x <= grid.Width - shape.Width; x++)
+                    {
+                        var origin = new Cell(x, y);
+                        if (!grid.CanPlace(shape, origin))
+                        {
+                            continue;
+                        }
+
+                        item.Rotation = rotation;
+                        item.Origin = origin;
+                        grid.Place(item.InstanceId, shape, origin);
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         public bool TryAdd(string definitionId, ItemShape baseShape, out PlacedItem item)
         {
             return TryAdd(definitionId, baseShape, true, out item);

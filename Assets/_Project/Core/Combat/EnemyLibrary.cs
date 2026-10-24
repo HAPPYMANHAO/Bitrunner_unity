@@ -19,6 +19,9 @@ namespace BitRunner.Core
         public int MaxHp;
         public int BaseEnergy;
         public EnemyItemPlacement[] Items;
+
+        /// <summary>随机配装时允许出现的最高物品档位。低级敌人不该拎着 T3 装备。</summary>
+        public int MaxItemLevel = 3;
     }
 
     public static class EnemyLibrary
@@ -40,7 +43,8 @@ namespace BitRunner.Core
                     Item("coin", 2, 0),
                     Item("coin", 3, 0),
                     Item("idol", 0, 1)
-                }
+                },
+                MaxItemLevel = 2
             },
             new EnemyArchetype
             {
@@ -54,7 +58,8 @@ namespace BitRunner.Core
                     Item("scrap_blade", 2, 0),
                     Item("scrap_blade", 2, 1),
                     Item("coin", 2, 2)
-                }
+                },
+                MaxItemLevel = 3
             },
             new EnemyArchetype
             {
@@ -69,7 +74,8 @@ namespace BitRunner.Core
                     Item("coin", 3, 0),
                     Item("coin", 0, 1),
                     Item("ammo", 3, 1, 4)
-                }
+                },
+                MaxItemLevel = 3
             },
             new EnemyArchetype
             {
@@ -83,7 +89,8 @@ namespace BitRunner.Core
                     Item("buckler", 2, 0),
                     Item("scrap_blade", 2, 1),
                     Item("patch", 0, 2)
-                }
+                },
+                MaxItemLevel = 3
             },
             new EnemyArchetype
             {
@@ -97,7 +104,8 @@ namespace BitRunner.Core
                     Item("jammer", 2, 0),
                     Item("patch", 3, 0),
                     Item("coin", 2, 1)
-                }
+                },
+                MaxItemLevel = 3
             },
             new EnemyArchetype
             {
@@ -112,7 +120,8 @@ namespace BitRunner.Core
                     Item("pulse", 2, 1),
                     Item("coin", 0, 1),
                     Item("ammo", 1, 0, 4)
-                }
+                },
+                MaxItemLevel = 3
             },
             new EnemyArchetype
             {
@@ -126,7 +135,8 @@ namespace BitRunner.Core
                     Item("patch", 2, 0),
                     Item("coin", 3, 0),
                     Item("coin", 0, 1)
-                }
+                },
+                MaxItemLevel = 3
             },
             new EnemyArchetype
             {
@@ -140,7 +150,8 @@ namespace BitRunner.Core
                     Item("buckler", 0, 1),
                     Item("patch", 2, 0),
                     Item("coin", 2, 1)
-                }
+                },
+                MaxItemLevel = 3
             },
             new EnemyArchetype
             {
@@ -153,7 +164,8 @@ namespace BitRunner.Core
                     Item("wild_bite", 0, 0),
                     Item("junk", 1, 0),
                     Item("stone", 2, 0)
-                }
+                },
+                MaxItemLevel = 1
             },
             new EnemyArchetype
             {
@@ -166,7 +178,8 @@ namespace BitRunner.Core
                     Item("wild_bite", 0, 0),
                     Item("branch", 1, 0),
                     Item("junk", 3, 0)
-                }
+                },
+                MaxItemLevel = 1
             },
             new EnemyArchetype
             {
@@ -180,7 +193,265 @@ namespace BitRunner.Core
                     Item("scrap_blade", 2, 0),
                     Item("buckler", 0, 1),
                     Item("coin", 2, 1)
-                }
+                },
+                MaxItemLevel = 3
+            },
+
+            // ---------- T2：基础 / 军用前半 ----------
+            // 敌人变强靠 HP，不靠护甲（docs/ITEM_TIER_PLAN.md §7.1）。
+            new EnemyArchetype
+            {
+                Id = "ripper",
+                DisplayName = "撕裂者",
+                MaxHp = 28,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("blade", 0, 0),
+                    Item("scrap_armor", 0, 1),
+                    Item("coin", 2, 0),
+                    Item("coin", 3, 0)
+                },
+                MaxItemLevel = 2
+            },
+            new EnemyArchetype
+            {
+                Id = "stalker_drone",
+                DisplayName = "潜猎无人机",
+                MaxHp = 30,
+                BaseEnergy = 2,
+                Items = new[]
+                {
+                    Item("nail_gun", 0, 0),
+                    Item("ammo", 0, 1, 4),
+                    Item("jammer", 1, 1),
+                    Item("coin", 2, 0)
+                },
+                MaxItemLevel = 2
+            },
+            new EnemyArchetype
+            {
+                Id = "gas_hound",
+                DisplayName = "毒气犬",
+                MaxHp = 26,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("toxin_dart", 0, 0),
+                    Item("toxin_dart", 1, 0),
+                    Item("patch", 2, 0),
+                    Item("coin", 3, 0)
+                },
+                MaxItemLevel = 2
+            },
+            new EnemyArchetype
+            {
+                Id = "bruiser",
+                DisplayName = "打手",
+                MaxHp = 38,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("blade", 0, 0),
+                    Item("blade", 2, 0),
+                    Item("scrap_vest", 0, 1),
+                    Item("coin", 2, 1)
+                },
+                MaxItemLevel = 2
+            },
+
+            // ---------- T3：军用 / 信号前半 ----------
+            new EnemyArchetype
+            {
+                Id = "arc_trooper",
+                DisplayName = "弧光兵",
+                MaxHp = 44,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("rod", 0, 0),
+                    Item("patch", 2, 0),
+                    Item("coin", 2, 1),
+                    Item("coin", 3, 0)
+                },
+                MaxItemLevel = 3
+            },
+            new EnemyArchetype
+            {
+                Id = "warden",
+                DisplayName = "看守",
+                MaxHp = 52,
+                BaseEnergy = 2,
+                Items = new[]
+                {
+                    Item("heavy_plate", 0, 0),
+                    Item("blade", 2, 0),
+                    Item("patch", 2, 1)
+                },
+                MaxItemLevel = 3
+            },
+            new EnemyArchetype
+            {
+                Id = "corroder",
+                DisplayName = "腐蚀者",
+                MaxHp = 40,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("corrosive_dart", 0, 0),
+                    Item("corrosive_dart", 1, 0),
+                    Item("filter", 2, 0),
+                    Item("coin", 0, 1)
+                },
+                MaxItemLevel = 3
+            },
+            new EnemyArchetype
+            {
+                Id = "piston_brute",
+                DisplayName = "活塞蛮兵",
+                MaxHp = 56,
+                BaseEnergy = 2,
+                Items = new[]
+                {
+                    Item("ram_piston", 0, 0),
+                    Item("buckler", 0, 1),
+                    Item("patch", 2, 0),
+                    Item("coin", 2, 1)
+                },
+                MaxItemLevel = 3
+            },
+
+            // ---------- T4：信号深处 / 深空 ----------
+            new EnemyArchetype
+            {
+                Id = "rail_sniper",
+                DisplayName = "磁轨狙击手",
+                MaxHp = 60,
+                BaseEnergy = 2,
+                Items = new[]
+                {
+                    Item("rail_lance", 0, 0),
+                    Item("ammo", 2, 0, 6),
+                    Item("coin", 3, 0)
+                },
+                MaxItemLevel = 4
+            },
+            new EnemyArchetype
+            {
+                Id = "plasma_guard",
+                DisplayName = "等离子守卫",
+                MaxHp = 72,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("plasma_cutter", 0, 0),
+                    Item("reactive_plating", 0, 1)
+                },
+                MaxItemLevel = 4
+            },
+            new EnemyArchetype
+            {
+                Id = "flechette_trooper",
+                DisplayName = "破片兵",
+                MaxHp = 66,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("flechette_gun", 0, 0),
+                    Item("ammo", 0, 1, 6),
+                    Item("nano_stitcher", 2, 0)
+                },
+                MaxItemLevel = 4
+            },
+            new EnemyArchetype
+            {
+                Id = "hazmat_executor",
+                DisplayName = "隔离执行官",
+                MaxHp = 78,
+                BaseEnergy = 2,
+                Items = new[]
+                {
+                    Item("reactor_maul", 0, 0),
+                    Item("hazmat_rig", 2, 0)
+                },
+                MaxItemLevel = 4
+            },
+
+            // ---------- T5：深空终局 / 核心 ----------
+            new EnemyArchetype
+            {
+                Id = "arc_reaver_unit",
+                DisplayName = "弧光撕裂者",
+                MaxHp = 88,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("arc_reaver", 0, 0),
+                    Item("coolant_loop", 2, 0),
+                    Item("coin", 2, 1)
+                },
+                MaxItemLevel = 5
+            },
+            new EnemyArchetype
+            {
+                Id = "void_stalker",
+                DisplayName = "虚空潜行者",
+                MaxHp = 96,
+                BaseEnergy = 3,
+                Items = new[]
+                {
+                    Item("void_needler", 0, 0),
+                    Item("phase_weave", 2, 0),
+                    Item("patch", 2, 1)
+                },
+                MaxItemLevel = 5
+            },
+            new EnemyArchetype
+            {
+                Id = "singularity_guard",
+                DisplayName = "奇点卫兵",
+                MaxHp = 110,
+                BaseEnergy = 2,
+                Items = new[]
+                {
+                    Item("singularity_hammer", 0, 0),
+                    Item("corona_aegis", 2, 0)
+                },
+                MaxItemLevel = 5
+            },
+            new EnemyArchetype
+            {
+                Id = "polymer_assassin",
+                DisplayName = "高分子刺客",
+                MaxHp = 92,
+                BaseEnergy = 4,
+                Items = new[]
+                {
+                    Item("polymer_dagger", 0, 0),
+                    Item("polymer_dagger", 1, 0),
+                    Item("phase_weave", 2, 0),
+                    Item("patch", 0, 1)
+                },
+                MaxItemLevel = 5
+            },
+
+            // ---------- Boss ----------
+            // 全游戏唯一允许「高 HP + 高护甲」同时出现的单位：靠体量和三系重甲压迫，
+            // 而不是靠数值膨胀。放在核心潜网的敌人池里就能直接被遭遇（Boss 判定留给 C-8）。
+            new EnemyArchetype
+            {
+                Id = "corona_mech",
+                DisplayName = "日冕战斗机甲",
+                MaxHp = 140,
+                BaseEnergy = 4,
+                Items = new[]
+                {
+                    Item("corona_aegis", 0, 0),
+                    Item("singularity_hammer", 2, 0),
+                    Item("data_core", 0, 2),
+                    Item("coin", 2, 2)
+                },
+                MaxItemLevel = 5
             }
         };
 

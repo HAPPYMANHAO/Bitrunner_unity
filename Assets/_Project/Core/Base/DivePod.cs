@@ -5,7 +5,7 @@ namespace BitRunner.Core
 {
     public sealed class DivePod
     {
-        public const int MaxLevel = 3;
+        public const int MaxLevel = 5;
 
         public int Level { get; private set; }
         public BagInventory Grid { get; private set; }
@@ -14,17 +14,37 @@ namespace BitRunner.Core
         public DivePod()
         {
             Level = 1;
-            Grid = new BagInventory(1, 2);
+            Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
+        }
+
+        /// <summary>
+        /// 舱体宽度 = 等级。密钥体积按档递增（1 / 2 / 4 / 6 / 9 格），
+        /// 所以 L1 只塞得下 T1 密钥，最深的 3×3 密钥要 L3 才能放进去。
+        /// </summary>
+        public static int WidthForLevel(int level)
+        {
+            if (level < 1)
+            {
+                return 1;
+            }
+
+            return level > MaxLevel ? MaxLevel : level;
+        }
+
+        /// <summary>高度封顶 3 行：基地右侧面板只有 138px 高，再高就会压到说明文字和按钮。</summary>
+        public static int HeightForLevel(int level)
+        {
+            return level <= 2 ? 2 : 3;
         }
 
         public int Width
         {
-            get { return Level == 1 ? 1 : Level == 2 ? 2 : 3; }
+            get { return WidthForLevel(Level); }
         }
 
         public int Height
         {
-            get { return Level == 3 ? 3 : 2; }
+            get { return HeightForLevel(Level); }
         }
 
         public bool CanUpgrade
@@ -36,12 +56,19 @@ namespace BitRunner.Core
         {
             get
             {
-                if (Level >= MaxLevel)
+                switch (Level)
                 {
-                    return 0;
+                    case 1:
+                        return 200;
+                    case 2:
+                        return 450;
+                    case 3:
+                        return 900;
+                    case 4:
+                        return 1600;
+                    default:
+                        return 0;
                 }
-
-                return Level == 1 ? 200 : 450;
             }
         }
 
@@ -49,16 +76,34 @@ namespace BitRunner.Core
         {
             get
             {
-                if (Level >= MaxLevel)
+                switch (Level)
                 {
-                    return new string[0];
+                    case 1:
+                        return new[] { "scrap", "scrap", "wire" };
+                    case 2:
+                        return new[] { "circuit", "alloy", "alloy" };
+                    case 3:
+                        return new[] { "alloy", "alloy", "circuit", "servo" };
+                    case 4:
+                        return new[] { "superalloy", "superalloy", "plasma_cell" };
+                    default:
+                        return new string[0];
                 }
-
-                return Level == 1
-                    ? new[] { "scrap", "scrap", "wire" }
-                    : new[] { "circuit", "alloy", "alloy" };
             }
         }
+
+        /// <summary>
+        /// 潜网舱等级决定能进多深的网：地点的**最低**档位不能超过舱体等级。
+        /// 用最低档而不是最高档，是因为「基础潜网」本身覆盖 T1–T3——若按最高档限制，
+        /// 开局的 L1 潜网舱连基础潜网都进不去。
+        /// </summary>
+        public int MaxDiveTier
+        {
+            get { return Level; }
+        }
+
+        /// <summary>上次解析失败只是因为舱体等级不够（UI 用它换按钮文案）。</summary>
+        public bool LastResolveBlockedByTier { get; private set; }
 
         public void EnsureSelection(ItemCatalog catalog)
         {
@@ -131,6 +176,7 @@ namespace BitRunner.Core
         public bool TryResolveDive(ItemCatalog catalog, out DivePlan plan, out string error)
         {
             EnsureSelection(catalog);
+            LastResolveBlockedByTier = false;
 
             PlacedItem key;
             if (!TryFindSelectedKey(catalog, out key))
@@ -147,7 +193,20 @@ namespace BitRunner.Core
                 ids.Add(items[i].DefinitionId);
             }
 
-            return DiveKeyLibrary.TryResolve(key.DefinitionId, ids, out plan, out error);
+            if (!DiveKeyLibrary.TryResolve(key.DefinitionId, ids, out plan, out error))
+            {
+                return false;
+            }
+
+            if (plan != null && plan.TierMin > MaxDiveTier)
+            {
+                LastResolveBlockedByTier = true;
+                error = plan.Name + " 需要潜网舱 Lv." + plan.TierMin + "（当前 Lv." + Level + "）。";
+                plan = null;
+                return false;
+            }
+
+            return true;
         }
 
         public void Consume(DivePlan plan, ItemCatalog catalog)
@@ -192,9 +251,7 @@ namespace BitRunner.Core
             }
 
             int nextLevel = Level + 1;
-            int nextWidth = nextLevel == 1 ? 1 : nextLevel == 2 ? 2 : 3;
-            int nextHeight = nextLevel == 3 ? 3 : 2;
-            Grid = FacilityGrid.Resize(Grid, nextWidth, nextHeight);
+            Grid = FacilityGrid.Resize(Grid, WidthForLevel(nextLevel), HeightForLevel(nextLevel));
             Level = nextLevel;
             error = null;
             return true;

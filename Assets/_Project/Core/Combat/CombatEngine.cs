@@ -7,6 +7,7 @@ namespace BitRunner.Core
     {
         private readonly ItemCatalog _catalog;
         private readonly IReadOnlyList<SynergyRule> _synergyRules;
+        private readonly TraitEngine _traits;
         private readonly List<CombatActor> _enemies;
         private readonly List<CombatEvent> _events = new List<CombatEvent>();
         private CombatActor _activeEnemy;
@@ -17,6 +18,16 @@ namespace BitRunner.Core
         }
 
         public CombatEngine(CombatActor player, IEnumerable<CombatActor> enemies, ItemCatalog catalog, IReadOnlyList<SynergyRule> synergyRules)
+            : this(player, enemies, catalog, synergyRules, null)
+        {
+        }
+
+        public CombatEngine(
+            CombatActor player,
+            IEnumerable<CombatActor> enemies,
+            ItemCatalog catalog,
+            IReadOnlyList<SynergyRule> synergyRules,
+            TraitCatalog traitCatalog)
         {
             if (player == null)
             {
@@ -42,7 +53,13 @@ namespace BitRunner.Core
 
             _catalog = catalog;
             _synergyRules = synergyRules ?? SynergyResolver.DefaultRules;
+            _traits = new TraitEngine(catalog, traitCatalog);
             Phase = CombatPhase.NotStarted;
+        }
+
+        public TraitEngine Traits
+        {
+            get { return _traits; }
         }
 
         public CombatActor Player { get; private set; }
@@ -154,24 +171,24 @@ namespace BitRunner.Core
             {
                 if (target == null || !target.IsAlive)
                 {
-                error = "需要活着的目标。";
-                return false;
-            }
+                    error = "需要活着的目标。";
+                    return false;
+                }
 
-            if (actor.IsPlayer == target.IsPlayer)
-            {
-                error = "目标必须在敌方。";
-                return false;
+                if (actor.IsPlayer == target.IsPlayer)
+                {
+                    error = "目标必须在敌方。";
+                    return false;
+                }
             }
-        }
-        else if (definition.Target == ItemTarget.Self)
-        {
-            if (target != null && target != actor)
+            else if (definition.Target == ItemTarget.Self)
             {
-                error = "该物品只能对自己使用。";
-                return false;
+                if (target != null && target != actor)
+                {
+                    error = "该物品只能对自己使用。";
+                    return false;
+                }
             }
-        }
 
             CombatActor actualTarget = definition.Target == ItemTarget.Enemy ? target : actor;
 
@@ -185,6 +202,22 @@ namespace BitRunner.Core
             {
                 actor.Bag.TryRemoveAmount(definition.AmmoItemId, definition.AmmoPerUse);
                 Emit(CombatEventType.AmmoConsumed, actor.Id, actualTarget.Id, definition.Id, definition.AmmoPerUse, 0, "消耗 " + definition.AmmoPerUse + " 弹药");
+            }
+
+            IReadOnlyList<TraitUseEffect> traitEffects = _traits.ApplyOnUse(actor, item, definition);
+            for (int i = 0; i < traitEffects.Count; i++)
+            {
+                if (traitEffects[i].Status == StatusType.None)
+                {
+                    Emit(
+                        CombatEventType.TraitTriggered,
+                        actor.Id,
+                        actor.Id,
+                        definition.Id,
+                        traitEffects[i].Amount,
+                        0,
+                        traitEffects[i].Message);
+                }
             }
 
             int damage = GetDamage(actor, item);
@@ -214,10 +247,23 @@ namespace BitRunner.Core
                 }
             }
 
-            if (definition.AppliedStatus != StatusType.None)
+            for (int i = 0; i < traitEffects.Count; i++)
             {
-                actualTarget.ApplyStatus(definition.AppliedStatus, definition.StatusTurns, definition.StatusStacks);
-                Emit(CombatEventType.StatusApplied, actor.Id, actualTarget.Id, definition.Id, definition.StatusStacks, 0, actualTarget.DisplayName + "获得 " + ItemText.StatusName(definition.AppliedStatus) + "×" + definition.StatusStacks);
+                TraitUseEffect effect = traitEffects[i];
+                if (effect.Status == StatusType.None || effect.Amount <= 0 || !actualTarget.IsAlive)
+                {
+                    continue;
+                }
+
+                actualTarget.ApplyStatus(effect.Status, Math.Max(1, effect.StatusTurns), effect.Amount);
+                Emit(
+                    CombatEventType.StatusApplied,
+                    actor.Id,
+                    actualTarget.Id,
+                    definition.Id,
+                    effect.Amount,
+                    0,
+                    actualTarget.DisplayName + "获得 " + ItemText.StatusName(effect.Status) + "×" + effect.Amount);
             }
 
             int cooldown = GetCooldownAfterUse(actor, item);
@@ -405,14 +451,11 @@ namespace BitRunner.Core
 
             SynergyBonus bonus = GetSynergyBonus(actor, item.InstanceId);
             int damage = definition.Damage + bonus.Damage;
-            if (definition.ShieldToDamageDivisor > 0 && actor != null)
-            {
-                damage += actor.Shield / definition.ShieldToDamageDivisor;
-            }
 
             if (actor != null)
             {
                 damage += actor.GetStatusStacks(StatusType.Overclock);
+                damage += _traits.GetBonusDamage(actor, item, definition);
             }
 
             return Math.Max(0, damage);
@@ -425,7 +468,8 @@ namespace BitRunner.Core
                 return 0;
             }
 
-            int total = 0;
+            // 护甲基底先打底：CPU 的底甲芯片对五系同时生效，不依赖背包里有没有护甲。
+            int total = actor.ArmorBase;
             IReadOnlyList<PlacedItem> items = actor.Bag.Items;
             for (int i = 0; i < items.Count; i++)
             {
@@ -436,7 +480,7 @@ namespace BitRunner.Core
                 }
             }
 
-            return total;
+            return total > 0 ? total : 0;
         }
 
         public int GetDamageAfterArmor(CombatActor target, int rawDamage, DamageType type)
@@ -511,28 +555,13 @@ namespace BitRunner.Core
 
         public int GetPassiveEnergy(CombatActor actor)
         {
-            Dictionary<int, SynergyBonus> bonuses = SynergyResolver.Resolve(actor.Bag, _catalog, _synergyRules);
-            int total = 0;
-
-            IReadOnlyList<PlacedItem> items = actor.Bag.Items;
-            for (int i = 0; i < items.Count; i++)
+            if (actor == null)
             {
-                ItemDefinition definition;
-                if (!_catalog.TryGet(items[i].DefinitionId, out definition) || definition.Activation != ItemActivation.Passive)
-                {
-                    continue;
-                }
-
-                total += definition.BonusEnergy + SynergyResolver.Get(bonuses, items[i].InstanceId).Energy;
+                return 0;
             }
 
-            return total;
-        }
-
-        public int GetPassiveShield(CombatActor actor)
-        {
             Dictionary<int, SynergyBonus> bonuses = SynergyResolver.Resolve(actor.Bag, _catalog, _synergyRules);
-            int total = 0;
+            int total = _traits.GetPassiveEnergy(actor);
 
             IReadOnlyList<PlacedItem> items = actor.Bag.Items;
             for (int i = 0; i < items.Count; i++)
@@ -543,7 +572,7 @@ namespace BitRunner.Core
                     continue;
                 }
 
-                total += definition.Shield + SynergyResolver.Get(bonuses, items[i].InstanceId).Shield;
+                total += SynergyResolver.Get(bonuses, items[i].InstanceId).Energy;
             }
 
             return total;
@@ -586,7 +615,10 @@ namespace BitRunner.Core
         {
             actor.TickCooldowns();
             actor.ResetTurnUsage();
-            ApplyTurnStartCleanses(actor);
+
+            IReadOnlyList<TraitTurnEffect> traitEffects = _traits.ResolveTurnStart(actor);
+            ApplyTraitEffects(actor, traitEffects, TraitEffect.ConsumeStatus);
+            _traits.ResetTurn(actor);
 
             int ap = actor.BaseEnergy + GetPassiveEnergy(actor);
             int overload = actor.GetStatusStacks(StatusType.Overload);
@@ -607,8 +639,14 @@ namespace BitRunner.Core
                 actor.Shield = 0;
             }
 
+            ApplyTraitEffects(actor, traitEffects, TraitEffect.AddShield);
+
             ApplyTurnStartBuffs(actor);
-            ApplyTurnStartItemStatuses(actor);
+
+            if (actor.IsAlive)
+            {
+                ApplyTraitEffects(actor, traitEffects, TraitEffect.GrantStatus);
+            }
 
             if (!actor.IsAlive)
             {
@@ -632,65 +670,67 @@ namespace BitRunner.Core
             }
 
             actor.TickStatuses();
+            _traits.ResetTurn(actor);
             Emit(CombatEventType.TurnEnded, actor.Id, null, null, 0, 0, actor.DisplayName + "结束回合");
         }
 
-        private void ApplyTurnStartCleanses(CombatActor actor)
+        private void ApplyTraitEffects(
+            CombatActor actor,
+            IReadOnlyList<TraitTurnEffect> effects,
+            TraitEffect kind)
         {
-            IReadOnlyList<PlacedItem> items = actor.Bag.Items;
-            for (int i = 0; i < items.Count; i++)
+            for (int i = 0; i < effects.Count; i++)
             {
-                ItemDefinition definition = GetDefinition(items[i]);
-                if (definition == null
-                    || definition.Activation != ItemActivation.Passive
-                    || definition.TurnStartCleanseStatus == StatusType.None)
+                TraitTurnEffect effect = effects[i];
+                if (effect.Trait == null || effect.Trait.Effect != kind || effect.Amount <= 0)
                 {
                     continue;
                 }
 
-                int removed = actor.ConsumeStatusStacks(
-                    definition.TurnStartCleanseStatus,
-                    Math.Max(1, definition.TurnStartCleanseStacks));
-                if (removed > 0)
+                if (kind == TraitEffect.AddShield)
                 {
+                    actor.Shield += effect.Amount;
                     Emit(
-                        CombatEventType.StatusConsumed,
+                        CombatEventType.ShieldGained,
                         actor.Id,
                         actor.Id,
-                        definition.Id,
-                        removed,
+                        effect.Source == null ? null : effect.Source.DefinitionId,
+                        effect.Amount,
                         0,
-                        actor.DisplayName + "清除了 " + removed + " 层" + ItemText.StatusName(definition.TurnStartCleanseStatus));
-                }
-            }
-        }
-
-        private void ApplyTurnStartItemStatuses(CombatActor actor)
-        {
-            IReadOnlyList<PlacedItem> items = actor.Bag.Items;
-            for (int i = 0; i < items.Count; i++)
-            {
-                ItemDefinition definition = GetDefinition(items[i]);
-                if (definition == null
-                    || definition.Activation != ItemActivation.Passive
-                    || definition.TurnStartSelfStatus == StatusType.None)
-                {
+                        effect.Message);
                     continue;
                 }
 
-                int stacks = Math.Max(1, definition.TurnStartSelfStatusStacks);
-                actor.ApplyStatus(
-                    definition.TurnStartSelfStatus,
-                    Math.Max(1, definition.TurnStartSelfStatusTurns),
-                    stacks);
-                Emit(
-                    CombatEventType.StatusApplied,
-                    actor.Id,
-                    actor.Id,
-                    definition.Id,
-                    stacks,
-                    0,
-                    actor.DisplayName + "获得 " + ItemText.StatusName(definition.TurnStartSelfStatus) + "×" + stacks);
+                if (kind == TraitEffect.ConsumeStatus && effect.Status != StatusType.None)
+                {
+                    int removed = actor.ConsumeStatusStacks(effect.Status, effect.Amount);
+                    if (removed > 0)
+                    {
+                        Emit(
+                            CombatEventType.StatusConsumed,
+                            actor.Id,
+                            actor.Id,
+                            effect.Source == null ? null : effect.Source.DefinitionId,
+                            removed,
+                            0,
+                            effect.Message);
+                    }
+
+                    continue;
+                }
+
+                if (kind == TraitEffect.GrantStatus && effect.Status != StatusType.None)
+                {
+                    actor.ApplyStatus(effect.Status, Math.Max(1, effect.StatusTurns), effect.Amount);
+                    Emit(
+                        CombatEventType.TraitTriggered,
+                        actor.Id,
+                        actor.Id,
+                        effect.Source == null ? null : effect.Source.DefinitionId,
+                        effect.Amount,
+                        0,
+                        effect.Message);
+                }
             }
         }
 

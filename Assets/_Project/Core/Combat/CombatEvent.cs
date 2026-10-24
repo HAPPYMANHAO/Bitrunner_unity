@@ -11,6 +11,7 @@ namespace BitRunner.Core
         Healed,
         StatusApplied,
         StatusConsumed,
+        TraitTriggered,
         ItemConsumed,
         AmmoConsumed,
         DurabilityLost,

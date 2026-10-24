@@ -69,13 +69,51 @@ namespace BitRunner.Core
 
         public static string RequirementText(ItemCatalog catalog, int bitCost, string[] materialIds)
         {
+            return RequirementText(catalog, null, bitCost, materialIds);
+        }
+
+        /// <summary>
+        /// 生成需求文案；传入 stash 时会额外标出「现有 / 所需」，方便玩家看出差多少。
+        /// 现有数量包含仓库容器（零件盒等）里的内容物。
+        /// </summary>
+        public static string RequirementText(ItemCatalog catalog, BagInventory stash, int bitCost, string[] materialIds)
+        {
             string text = bitCost + " bit";
             if (catalog == null || materialIds == null || materialIds.Length == 0)
             {
                 return text;
             }
 
+            var counts = Aggregate(materialIds);
+            var ids = new List<string>(counts.Keys);
+            ids.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < ids.Count; i++)
+            {
+                ItemDefinition definition;
+                string name = catalog.TryGet(ids[i], out definition) ? definition.DisplayName : ids[i];
+                text += "  " + name + "×" + counts[ids[i]];
+
+                if (stash != null)
+                {
+                    int have = ItemSearch.CountOf(stash, ids[i]);
+                    if (have < counts[ids[i]])
+                    {
+                        text += "(有 " + have + ")";
+                    }
+                }
+            }
+
+            return text;
+        }
+
+        private static Dictionary<string, int> Aggregate(string[] materialIds)
+        {
             var counts = new Dictionary<string, int>();
+            if (materialIds == null)
+            {
+                return counts;
+            }
+
             for (int i = 0; i < materialIds.Length; i++)
             {
                 string id = materialIds[i];
@@ -84,34 +122,14 @@ namespace BitRunner.Core
                 counts[id] = count + 1;
             }
 
-            var ids = new List<string>(counts.Keys);
-            ids.Sort(StringComparer.Ordinal);
-            for (int i = 0; i < ids.Count; i++)
-            {
-                ItemDefinition definition;
-                string name = catalog.TryGet(ids[i], out definition) ? definition.DisplayName : ids[i];
-                text += "  " + name + "×" + counts[ids[i]];
-            }
-
-            return text;
+            return counts;
         }
 
         private static bool HasMaterials(BagInventory stash, string[] materialIds)
         {
-            var counts = new Dictionary<string, int>();
-            if (materialIds != null)
+            foreach (KeyValuePair<string, int> pair in Aggregate(materialIds))
             {
-                for (int i = 0; i < materialIds.Length; i++)
-                {
-                    int count;
-                    counts.TryGetValue(materialIds[i], out count);
-                    counts[materialIds[i]] = count + 1;
-                }
-            }
-
-            foreach (KeyValuePair<string, int> pair in counts)
-            {
-                if (stash.CountOf(pair.Key) < pair.Value)
+                if (ItemSearch.CountOf(stash, pair.Key) < pair.Value)
                 {
                     return false;
                 }
@@ -122,20 +140,8 @@ namespace BitRunner.Core
 
         private static bool RemoveMaterials(BagInventory stash, string[] materialIds)
         {
-            if (materialIds == null)
-            {
-                return true;
-            }
-
-            for (int i = 0; i < materialIds.Length; i++)
-            {
-                if (!stash.TryRemoveAmount(materialIds[i], 1))
-                {
-                    return false;
-                }
-            }
-
-            return true;
+            // 顶层优先，顶层不够才动容器；整体校验通过后才会扣除。
+            return ItemSearch.TryConsumeAll(stash, Aggregate(materialIds));
         }
     }
 }

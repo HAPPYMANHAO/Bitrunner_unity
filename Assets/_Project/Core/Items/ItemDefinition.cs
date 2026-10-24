@@ -23,6 +23,16 @@ namespace BitRunner.Core
         public ItemShape Shape;
         public ItemTag Tags = ItemTag.None;
         public TagRank[] TagRanks;
+
+        /// <summary>物品等级 1–5。掉落、商店、敌人配装都按它过滤。</summary>
+        public int Level = 1;
+
+        /// <summary>
+        /// 特殊效果词条。词条 rank 不能超过物品自身等级（由 <see cref="ItemCatalog"/> 强校验），
+        /// 单件最多 4 条。
+        /// </summary>
+        public TraitRef[] Traits;
+
         public ContainerSpec ContainerSpec;
 
         public int EnergyCost = 1;
@@ -33,25 +43,12 @@ namespace BitRunner.Core
         public int Shield;
         public int MaxDurability;
         public int Heal;
-        public int BonusEnergy;
 
         public int ArmorMelee;
         public int ArmorProjectile;
         public int ArmorBurn;
         public int ArmorToxin;
         public int ArmorAsphyxiation;
-
-        public StatusType AppliedStatus = StatusType.None;
-        public int StatusTurns = 2;
-        public int StatusStacks = 1;
-
-        public StatusType TurnStartSelfStatus = StatusType.None;
-        public int TurnStartSelfStatusTurns = 1;
-        public int TurnStartSelfStatusStacks = 1;
-        public StatusType TurnStartCleanseStatus = StatusType.None;
-        public int TurnStartCleanseStacks = 1;
-
-        public int ShieldToDamageDivisor;
 
         public bool ConsumeOnUse;
         public int Value;
@@ -99,6 +96,29 @@ namespace BitRunner.Core
             }
 
             return rank;
+        }
+
+        public bool HasTrait(string traitId)
+        {
+            return GetTraitRank(traitId) > 0;
+        }
+
+        public int GetTraitRank(string traitId)
+        {
+            if (Traits == null || string.IsNullOrEmpty(traitId))
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < Traits.Length; i++)
+            {
+                if (Traits[i].TraitId == traitId)
+                {
+                    return ClampRank(Traits[i].Rank);
+                }
+            }
+
+            return 0;
         }
 
         public bool UsesAmmo

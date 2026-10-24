@@ -118,7 +118,8 @@ namespace BitRunner.Tests
                 campaign.SettleExpedition();
             }
 
-            Assert.AreEqual(CampaignStatus.Victory, campaign.Status);
+            Assert.AreEqual(CampaignStatus.Active, campaign.Status);
+            Assert.AreEqual(600, campaign.TotalPaid);
             Assert.AreEqual(0, campaign.Bit);
             Assert.AreEqual(0, stash.CountOf("bit"));
         }

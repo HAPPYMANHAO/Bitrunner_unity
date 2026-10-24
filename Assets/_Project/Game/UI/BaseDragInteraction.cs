@@ -67,6 +67,13 @@ namespace BitRunner.Game
 
         public Func<BaseBagSource, PlacedItem, BaseBagSource> QuickMoveTarget;
         public Func<BaseBagSource, int, bool> TryActivateItem;
+
+        /// <summary>
+        /// 返回非 null 表示这件物品**不允许被拿走**，返回值直接当提示文案。
+        /// 通讯中枢里被任务占用的上行链路走这里拦下——它必须一直待在格子里。
+        /// </summary>
+        public Func<BaseBagSource, PlacedItem, string> CanTake;
+
         public Func<Vector2, bool> PointerBlocked;
         public event Action<string> Message;
         public event Action Changed;
@@ -351,6 +358,20 @@ namespace BitRunner.Game
                     continue;
                 }
 
+                if (CanTake != null)
+                {
+                    string blocked = CanTake(source, item);
+                    if (blocked != null)
+                    {
+                        if (Message != null)
+                        {
+                            Message(blocked);
+                        }
+
+                        return;
+                    }
+                }
+
                 _dragging = true;
                 _source = source;
                 _item = item;
@@ -558,6 +579,20 @@ namespace BitRunner.Game
                 return false;
             }
 
+            if (CanTake != null)
+            {
+                string blocked = CanTake(source, item);
+                if (blocked != null)
+                {
+                    if (Message != null)
+                    {
+                        Message(blocked);
+                    }
+
+                    return false;
+                }
+            }
+
             BaseBagSource target = QuickMoveTarget(source, item);
             if (target == null || target == source || target.Bag == null || !target.CanReceive)
             {
@@ -599,7 +634,7 @@ namespace BitRunner.Game
                 return false;
             }
 
-            ItemTransfer.PreserveContainer(item, placed);
+            ItemTransfer.PreserveAll(item, placed);
             source.Bag.Remove(instanceId);
             for (int i = 0; i < _sources.Count; i++)
             {
@@ -752,7 +787,7 @@ namespace BitRunner.Game
                     ItemDefinition definition = _catalog.Get(_item.DefinitionId);
                     if (_targetBag.Bag.TryStackAt(_item.DefinitionId, _item.BaseShape, _target, _rotation, _item.Count, definition.MaxStack, out placed, out error))
                     {
-                        ItemTransfer.PreserveContainer(_item, placed);
+                        ItemTransfer.PreserveAll(_item, placed);
                         _source.Bag.Remove(_item.InstanceId);
                         changed = true;
                     }
@@ -904,12 +939,12 @@ namespace BitRunner.Game
             string error;
             if (_source.Bag.TryAddAt(definitionId, baseShape, _target, _rotation, rotatable, count, out placed, out error))
             {
-                ItemTransfer.PreserveContainer(_item, placed);
+                ItemTransfer.PreserveAll(_item, placed);
                 return true;
             }
 
             _source.Bag.TryAddAt(definitionId, baseShape, _originalOrigin, _originalRotation, rotatable, count, out placed, out error);
-            ItemTransfer.PreserveContainer(_item, placed);
+            ItemTransfer.PreserveAll(_item, placed);
             return false;
         }
 

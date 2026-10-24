@@ -14,7 +14,18 @@ namespace BitRunner.Core
         Currency,
         Ammo,
         Action,
-        Container
+        Container,
+
+        /// <summary>
+        /// 通讯上行链路：只能插进通讯中枢，代表「一条被占用的信道」。
+        ///
+        /// **刻意和 <see cref="Key"/> 分开**。ContainerSpec 只有 AllowedCategories /
+        /// RequiredAnyTags / AllowNestedContainers 三重白名单过滤，没有排除机制——
+        /// 如果上行链路也用 Key，就做不到「潜网舱与密钥盒只收关卡密钥」。
+        /// 而且 DivePod.EnsureSelection 只按 Category == Key 挑第一个，
+        /// 混进去会被当成关卡密钥选中，然后报「未知密钥」。
+        /// </summary>
+        Uplink
     }
 
     public enum ItemActivation
@@ -96,6 +107,12 @@ namespace BitRunner.Core
         Salvage = 1 << 12,
         Drone = 1 << 13,
         Targeting = 1 << 14,
-        Container = 1 << 15
+        Container = 1 << 15,
+
+        /// <summary>
+        /// 只能插进中央处理器的芯片。刻意和 <see cref="Chip"/> 分开：
+        /// 后者是敌人配装里「科技件」槽位的筛选标签，混用会让敌人去装备只对玩家生效的芯片。
+        /// </summary>
+        CpuChip = 1 << 16
     }
 }

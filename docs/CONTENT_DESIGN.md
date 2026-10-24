@@ -3,7 +3,7 @@
 > 对应代码版本：2026-10-23  
 > 范围：物品、敌人、物品协同、Buff。  
 > 阅读方式：每节先列“当前实现”，再列“设计意图”与“待审查问题”。  
-> 当前测试基线：161/161 EditMode 通过。
+> 当前测试基线：213/213 EditMode 通过。
 
 ---
 
@@ -304,12 +304,12 @@
 
 - 基础能量 3；单件普通物品 1 能量，强力物品 2 能量。
 - 普通 Buff 每层 +1，单件物品最多 1 条核心联动。
-- 玩家 30 HP；敌人 4–10 伤害；战斗 3–6 回合。
+- 玩家 40 HP；敌人 4–10 伤害；战斗 3–6 回合。
 - 单场战斗的理想状态：2–3 个 build 点生效，而不是把所有物品堆满。
 
 ### 5.2 当前未完成项
 
-- `ShortCircuit` / `Cache` 没有物品来源。
+- `ShortCircuit` / `Cache` 目前只有词条（短路脉冲 / 缓存场）可用，尚无正式物品挂载。
 - `Drone` 标签没有物品。
 - 没有 Relic / Curse / Hazard / Blessing。
 - 没有距离 2、对角、空格、边缘、连通区域协同。
@@ -332,10 +332,15 @@
 
 ### 6.1 战役节奏
 
-- 战役为 **3 周 × 7 天**，欠款按周到期：600 / 900 / 1200 bit，总计 2700。
-- 每次出征消耗 1 天；回基地或阵亡后结算；第 7 天扣款，进入下一周。
+> **2026-10-24 已实现**：债务是**无限**的。按周爬升 `400 / 700 / 1000 / 1300 / 1600 / 2000`，第 6 周爬到 2000 后**每周固定 2000，直到结局**。不再有「还清即通关」。
+> 结局为多结局：**击杀终局 Boss / 主动逃亡 / 破产**（缴款失败立即结束）。
+> 完整推导见 `docs/ITEM_TIER_PLAN.md` §5 与 §11；代码落点为 `CampaignState` + `CampaignEnding`。
+
+- 没有固定总周数，战役持续到上述三种结局之一发生。
+- 每周 7 天 × 每次出征 1 天；第 7 天扣款，进入下一周，额度按曲线爬升。
 - 单次潜入最多 **3 个行动阶段**；阶段 3 后只剩撤离。
-- 死亡丢失背包，保险箱保留；主动撤离保留背包与保险箱。
+- 阵亡只丢失本次探索新捡的战利品，出发时带在身上的装备保留但耐久不恢复；保险箱不受影响。
+- **债务曲线即进度门禁**：W4 起基础潜网 7 次也交不起，W6 起必须能进军用以上地点，否则必破产。
 
 ### 6.2 潜入地点
 
@@ -443,6 +448,16 @@
 - L4/L5 材料应逐步转向高级材料（电路、合金、数据核心），避免只用废料升级。
 - 情报台、终端、仓库扩容、保险箱扩容仍未实现，应作为设施 5 级体系的一部分规划，而不是继续堆在 3 级设施上。
 
+**2026-10-24 补充：新增三件设施（已确认要做，尚未设计）**
+
+| 设施 | 作用 | 计划空间 L1→L5 | 状态 |
+|---|---|---|---|
+| **中央处理器** | 插入芯片，**永久**提升玩家基础属性（生命/能量/底甲）与特殊效果 | 2×2 / 3×3 / 3×4 / 4×4 / 5×4 | 未设计，见 `ITEM_TIER_PLAN.md` §6 草案 |
+| 子空间保险网络中枢 | 提升保险箱大小 | 2×2 / 2×3 / 3×3 / 3×4 / 4×4 | 未设计 |
+| 仓储设备 | 提升仓库大小 | 待定 | 未设计 |
+
+中央处理器是 RPG 成长的主轴：它是**唯一不占战斗背包**的成长载体，从而让「纵向成长」与「格子解谜」互不冲突（详见 `ITEM_TIER_PLAN.md` §0、§3）。
+
 
 ---
 
@@ -494,6 +509,8 @@ TraitDefinition
 ### 8.3 你给出的四个词条
 
 已确认“周围”采用**八方向相邻**。词条条件新增 `Surround8`，只影响词条，不改变现有物品协同的四方向 `Adjacent`。
+
+> **命名定稿（2026-10-24）**：`ItemTag.Blade` 的中文名已经是「利刃」，为避免同一份 tooltip 里出现两个「利刃」，第一条词条定名为**锋锐**；重砸/重甲/轻灵保持原名。代码中词条 id 为 `keen_edge / heavy_smash / heavy_armor / light_frame`。
 
 | 词条 | 触发 | 条件/目标 | 效果 | rank 数值 |
 |---|---|---|---|---|
@@ -557,9 +574,12 @@ TraitDefinition
 
 ---
 
-## 9. 物品等级规划（暂缓）
+## 9. 物品等级规划（已展开为独立方案）
 
-> 当前决策：本轮不做物品等级，先保留为后续预算参考。
+> 2026-10-24 更新：本节原有结论（压缩到当前战斗尺度）已被 `docs/ITEM_TIER_PLAN.md` **v2** 取代并细化。
+> v2 给出三轴成长模型（CPU 永久轴 / 装备 Tier 轴 / 词条 Build 轴）、5 档预算表、EHP/TTK 校验、
+> 无限债务经济模型、中央处理器设计草案、掉落门控、敌人同步曲线与 C-1…C-7 实施分期。
+> **执行前必须先确认 v2 §11 的八项决策。** 本节以下内容保留作为历史推导记录。
 
 ### 9.1 附件数值的问题
 
@@ -572,7 +592,7 @@ TraitDefinition
 
 附件内部也有一致性问题：石块价值 3、伤害 16、耐久 2；火把价值 8、伤害 12、耐久 30；军刺价值 125、伤害 18、耐久 110。数值、价值、耐久没有形成同一条等级曲线，不能直接作为等级预算使用。
 
-当前 BitRunner 是 30 HP、3 能量、3–6 回合战斗；如果直接采用 L5 的 40 伤害，会一击结束战斗，护甲和敌人 HP 也要整体重做。**不建议直接把附件数值搬进当前战斗**；建议先按本节 5 级预算压缩，词条提供 build 差异。
+当前 BitRunner 是 40 HP、3 能量、3–6 回合战斗；如果直接采用 L5 的 40 伤害，会一击结束战斗，护甲和敌人 HP 也要整体重做。**不建议直接把附件数值搬进当前战斗**；建议先按本节 5 级预算压缩，词条提供 build 差异。
 
 ### 9.2 建议的 5 级基准
 
@@ -663,7 +683,7 @@ TraitDefinition
 5. 已确认：物品等级本轮暂缓；后续若启用，建议采用压缩制。
 6. 已确认：设施扩展到 5 级；L4/L5 费用仍需定稿。
 7. 已实施：参考分辨率保持 640×360，仅物品格 32→16；UI 文字和按钮尺寸不变。
-7. 是否允许 `Trait` 与 `ItemTag` 同名（例如 Blade/利刃），还是强制不同命名空间？
+7. 已确认：强制不同命名空间——`ItemTag.Blade` 保留「利刃」，同机制词条改名「锋锐」，避免 tooltip 同屏出现两个「利刃」。
 
 ---
 
@@ -692,10 +712,65 @@ TraitDefinition
 | 敌人随机配装 | `Assets/_Project/Core/Combat/EnemyLoadoutGenerator.cs` |
 | 敌人 AI | `Assets/_Project/Core/Brains/EnemyBrain.cs` |
 | 协同规则 | `Assets/_Project/Core/Combat/SynergyResolver.cs` |
+| 词条定义与目录 | `Assets/_Project/Core/Traits/TraitTypes.cs`、`TraitCatalog.cs` |
+| 词条结算 | `Assets/_Project/Core/Traits/TraitEngine.cs` |
 | Buff 定义 | `Assets/_Project/Core/Combat/BuffLibrary.cs` |
 | 战斗结算 | `Assets/_Project/Core/Combat/CombatEngine.cs`、`CombatActor.cs` |
 | 战斗 UI | `Assets/_Project/Game/UI/CombatPrototypeBootstrap.cs`、`BagView.cs` |
-| 测试 | `Assets/_Project/Tests/EditMode/BuffTests.cs`、`SynergyTests.cs`、`FacilityTests.cs` |
+| 测试 | `Assets/_Project/Tests/EditMode/BuffTests.cs`、`SynergyTests.cs`、`TraitTests.cs`、`FacilityTests.cs` |
 
+
+---
+
+## 13. 实施记录 2026-10-24（词条 Phase A）
+
+已完成 Phase A 的数据模型与结算骨架，`CombatEngine` 不再新增硬编码分支。
+
+- 新增 `TraitRef`（TraitId + Rank）与 `ItemDefinition.Traits`、`ItemDefinition.Level`（默认 1，等级体系仍暂缓）。
+- 新增 `TraitDefinition`：Trigger（Passive/OnUse/TurnStart/TurnEnd）、Condition、Target、Effect、Duration、StackRule、`RankValues[5]`、`ConditionValues[5]`、`Status/StatusTurns`。
+- 新增 `TraitCatalog.Default`，落地 4 个词条：
+
+| 词条 | Trigger | 条件 / 目标 | 效果 | I–V |
+|---|---|---|---|---|
+| 锋锐 | OnUse | 八方向相邻武器，排除自身 | 这些武器本回合 +X 伤害，同名词条取最高 rank | 2/3/4/5/6 |
+| 重砸 | Passive | 自身八方向空格数（上限 8） | 自身伤害 +空格数 × X | 1/2/4/5/7 |
+| 重甲 | TurnStart | 自身八方向相邻护甲数，排除自身 | 获得 相邻护甲数 × X 护盾 | 2/4/5/6/8 |
+| 轻灵 | TurnStart | 背包护甲总数 ≤ N | 获得 X 层闪避（2 回合） | X=1/1/2/2/3，N=1/2/3/4/5 |
+
+- `TraitEngine` 负责八方向邻域、静态伤害、回合开始结算、OnUse 临时加成与回合重置；临时加成按 `(角色, 实例)` 记录，同名词条按 `Max` 合并而不是相加。
+- `CombatEngine` 接入点：`GetDamage`（静态 + 临时）、`TryUseItem`（OnUse，发出 `CombatEventType.TraitTriggered`）、`StartActorTurn`（先给护盾、再结算过热/纳米修复、最后给状态）、`EndActorTurn`（清空临时加成）。
+- 回合开始顺序有意调整为：清除类 → 词条护盾 → 过热/纳米修复 → 词条状态 → 物品回合开始状态。这样重甲护盾能吸收过热伤害，而轻灵闪避不会被自身过热立刻消耗。此顺序与 §8.5 的草案略有差异，以代码为准。
+- `ItemText.TraitLines` 在 tooltip 中输出「词条：」区块，文案由 `DescriptionFormat` + rank 数值生成，不再手写。
+- 示例接线：刀刃→锋锐 I、铁棍→重砸 I、重型装甲→重甲 I、废铁背心→轻灵 I。
+- 删除了与「护盾改为主动使用」设计冲突的死代码 `CombatEngine.GetPassiveShield`，并把依赖它的 `AdjacentPlatesBoostPassiveBlock` 改为验证主动使用护盾的协同加成。
+- 测试：新增 `TraitTests` 19 个（八方向、空格上限、rank 缩放、最高 rank 合并、自身排除、回合结束失效、敌人对称、文案、默认库接线、事件），Phase A 结束时 **195/195 通过**（Phase B 迁移后为 205/205，见 §13.1）。
+
+### 13.1 Phase B：旧字段迁移（同日完成）
+
+`ItemDefinition` 已删除 `AppliedStatus / StatusTurns / StatusStacks / TurnStartSelfStatus* / TurnStartCleanseStatus* / ShieldToDamageDivisor / BonusEnergy`，全部改由词条表达；`CombatEngine` 不再有任何按物品字段写死的状态分支。
+
+| 旧字段 / 旧行为 | 新词条 | 挂载物品 |
+|---|---|---|
+| `BonusEnergy` | 能量单元 `energy_cell`（Passive / AddEnergy） | 超频芯片 I、超频核心 II |
+| `AppliedStatus = Overheat` | 击穿 `overheat_strike`（OnUse） | 电击棍 I |
+| `AppliedStatus = Overload` | 信号干扰 `signal_jam`（OnUse） | 信号干扰器 I |
+| `AppliedStatus = Corrosion` | 腐蚀涂层 `corrosion_dose`（OnUse） | 腐蚀飞针 I |
+| `AppliedStatus = Nanorepair` | 纳米修复 `nanites`（OnUse） | 修复包 I |
+| `AppliedStatus = Evasion` | 偏导 `evasion_guard`（OnUse） | 偏导器 I |
+| `ShieldToDamageDivisor` | 护盾活塞 `shield_piston`（Passive / AddDamageFromShield） | 冲压活塞 I |
+| `TurnStartCleanseStatus = Overload` | 过载清除 `overload_purge`（TurnStart / ConsumeStatus） | 冷却回路 I |
+| `TurnStartSelfStatus = Coolant` | 冷却流体 `coolant_flow`（TurnStart） | 冷却回路 I |
+| `TurnStartSelfStatus = Overclock` | 超频流 `overclock_flow`（TurnStart） | 靶向阵列 I |
+| `TurnStartSelfStatus = Overload` | 过载负载 `overload_load`（TurnStart） | 超频核心 I |
+| （内容缺口） | 短路脉冲 `short_circuit_charge`、缓存场 `cache_field` | 暂无物品，留给后续内容 |
+
+配套改动：
+
+- `TraitEngine` 新增 `GetPassiveEnergy`（被动能量）、`TryGetOnUseStatus`（供 AI 与 UI 查询）、`TurnStart` 的清除分支。
+- `ItemText` 的「特殊效果」区块只剩「使用后消耗」，其余全部由「词条：」区块生成；`EnemyBrain` 的状态评分与探索界面的物品摘要也改为读词条。
+- `ItemCatalog` 构造时校验同一物品不能重复挂同名词条（词条冲突的最小防线）。
+- 迁移后行为等价：**205/205 通过**（新增 `TraitMigrationTests` 10 个：被动能量、护盾转伤、纳米修复、信号干扰、过热叠层上限、清除先于能量结算、冷却流体、默认库接线、重复词条拒绝、未知词条静默忽略）。
+
+仍未做：`MaxTriggersPerTurn` 未参与计数；`rank <= ItemDefinition.Level` 约束未启用（等级体系仍暂缓）；词条 icon、协同连线、Relic / Curse 层、精英敌人重排均未实现。
 
 ---

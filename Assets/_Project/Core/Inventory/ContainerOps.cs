@@ -81,7 +81,7 @@ namespace BitRunner.Core
                 return false;
             }
 
-            ItemTransfer.PreserveContainer(item, placed);
+            ItemTransfer.PreserveAll(item, placed);
             source.Remove(instanceId);
             error = null;
             return true;
@@ -135,7 +135,7 @@ namespace BitRunner.Core
                 return false;
             }
 
-            ItemTransfer.PreserveContainer(item, placed);
+            ItemTransfer.PreserveAll(item, placed);
             container.Bag.Remove(instanceId);
             error = null;
             return true;
@@ -144,12 +144,29 @@ namespace BitRunner.Core
 
     public static class ItemTransfer
     {
-        public static void PreserveContainer(PlacedItem source, PlacedItem target)
+        private static void PreserveContainer(PlacedItem source, PlacedItem target)
         {
             if (source != null && target != null && source.Container != null)
             {
                 target.Container = source.Container;
             }
+        }
+
+        /// <summary>
+        /// 把源物品的全部运行时状态搬到目标物品上：容器内容物、已消耗的耐久、探索绑定标记。
+        /// 只搬容器会让「挪一下背包」把耐久重置回满，等于免费修理；
+        /// 漏搬绑定标记则会把自己带上船的装备判成战利品。
+        /// </summary>
+        public static void PreserveAll(PlacedItem source, PlacedItem target)
+        {
+            if (source == null || target == null)
+            {
+                return;
+            }
+
+            PreserveContainer(source, target);
+            target.Durability = source.Durability;
+            target.ExpeditionBound = source.ExpeditionBound;
         }
     }
 }

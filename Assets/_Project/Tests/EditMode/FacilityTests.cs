@@ -31,6 +31,25 @@ namespace BitRunner.Tests
             return stash;
         }
 
+        private static PlacedItem AddContainer(BagInventory bag, ItemCatalog catalog, string containerId)
+        {
+            ItemDefinition definition = catalog.Get(containerId);
+            PlacedItem placed;
+            Assert.IsTrue(bag.TryAdd(containerId, definition.Shape, out placed), containerId);
+            ContainerOps.Ensure(placed, definition);
+            return placed;
+        }
+
+        private static void PutInside(PlacedItem container, BagInventory bag, ItemCatalog catalog, string itemId)
+        {
+            PlacedItem placed;
+            Assert.IsTrue(bag.TryAdd(itemId, catalog.Get(itemId).Shape, out placed), itemId);
+            string error;
+            Assert.IsTrue(
+                ContainerOps.TryPut(container.Container, bag, placed.InstanceId, catalog, out error),
+                error);
+        }
+
         [Test]
         public void DivePod_StartsSmallAndCanHoldAKeyPlusCatalyst()
         {
@@ -105,6 +124,16 @@ namespace BitRunner.Tests
 
             DivePlan plan;
             string error;
+
+            // 超频潜网的最低档是 T2，L1 潜网舱进不去——这是「设施门控」的第一道验证。
+            Assert.IsFalse(pod.TryResolveDive(catalog, out plan, out error));
+            Assert.IsTrue(pod.LastResolveBlockedByTier);
+            StringAssert.Contains("Lv.2", error);
+
+            var campaign = new CampaignState(new[] { 600 }, 500);
+            BagInventory stash = StashWith(catalog, "scrap", "scrap", "wire");
+            Assert.IsTrue(pod.TryUpgrade(campaign, stash, out error), error);
+
             Assert.IsTrue(pod.TryResolveDive(catalog, out plan, out error), error);
             Assert.AreEqual("超频潜网", plan.Name);
 
@@ -266,6 +295,92 @@ namespace BitRunner.Tests
             Assert.AreEqual(350, campaign.Bit);
             Assert.AreEqual(0, stash.CountOf("scrap"));
             Assert.AreEqual(0, stash.CountOf("wire"));
+        }
+
+        [Test]
+        public void DivePod_UpgradeUsesMaterialsStoredInsideStashContainer()
+        {
+            ItemCatalog catalog = Catalog();
+            var pod = new DivePod();
+            Add(pod.Grid, catalog, "dive_basic", 0, 0);
+            var campaign = new CampaignState(new[] { 600 }, 500);
+            var stash = new BagInventory(6, 5);
+            PlacedItem parts = AddContainer(stash, catalog, "parts_case");
+            PutInside(parts, stash, catalog, "scrap");
+            PutInside(parts, stash, catalog, "scrap");
+            PutInside(parts, stash, catalog, "wire");
+
+            int bitCost = pod.UpgradeCost;
+            Assert.AreEqual(0, stash.CountOf("scrap"), "顶层不应有材料，材料全在零件盒里");
+            Assert.AreEqual(2, ItemSearch.CountOf(stash, "scrap"));
+            Assert.AreEqual(1, ItemSearch.CountOf(stash, "wire"));
+
+            string error;
+            Assert.IsTrue(pod.TryUpgrade(campaign, stash, out error), error);
+
+            Assert.AreEqual(2, pod.Level);
+            Assert.AreEqual(500 - bitCost, campaign.Bit);
+            Assert.AreEqual(0, ItemSearch.CountOf(stash, "scrap"));
+            Assert.AreEqual(0, ItemSearch.CountOf(stash, "wire"));
+
+            // 零件盒本身仍是玩家资产，只是被清空
+            PlacedItem kept;
+            Assert.IsTrue(stash.TryGet(parts.InstanceId, out kept), "容器物品不应被一起消耗掉");
+            Assert.IsFalse(ContainerOps.HasContents(kept));
+        }
+
+        [Test]
+        public void DivePod_UpgradePrefersTopLevelMaterialsBeforeContainer()
+        {
+            ItemCatalog catalog = Catalog();
+            var pod = new DivePod();
+            Add(pod.Grid, catalog, "dive_basic", 0, 0);
+            var campaign = new CampaignState(new[] { 600 }, 500);
+            var stash = new BagInventory(6, 5);
+            PlacedItem parts = AddContainer(stash, catalog, "parts_case");
+            PutInside(parts, stash, catalog, "scrap");
+            PutInside(parts, stash, catalog, "scrap");
+            Add(stash, catalog, "scrap", 4, 4);
+            Add(stash, catalog, "wire", 0, 4);
+
+            string error;
+            Assert.IsTrue(pod.TryUpgrade(campaign, stash, out error), error);
+
+            Assert.AreEqual(0, stash.CountOf("scrap"), "顶层废料应优先被吃完");
+            Assert.AreEqual(0, stash.CountOf("wire"));
+            Assert.AreEqual(1, parts.Container.Bag.CountOf("scrap"), "顶层够用时不应动容器里的存量");
+        }
+
+        [Test]
+        public void BitMine_UpgradeKeepsBitAndContainerContentsWhenShort()
+        {
+            ItemCatalog catalog = Catalog();
+            var mine = new BitMine();
+            var campaign = new CampaignState(new[] { 600 }, 500);
+            var stash = new BagInventory(6, 5);
+            PlacedItem parts = AddContainer(stash, catalog, "parts_case");
+            PutInside(parts, stash, catalog, "scrap");
+
+            string error;
+            Assert.IsFalse(mine.TryUpgrade(campaign, stash, out error), "缺导线时不应升级成功");
+            Assert.AreEqual(500, campaign.Bit, "材料不足时 bit 必须原样保留");
+            Assert.AreEqual(1, mine.Level);
+            Assert.AreEqual(1, parts.Container.Bag.CountOf("scrap"), "失败时不应扣掉容器里的材料");
+        }
+
+        [Test]
+        public void RequirementText_ShowsAvailableCountsIncludingContainerContents()
+        {
+            ItemCatalog catalog = Catalog();
+            var stash = new BagInventory(6, 5);
+            PlacedItem parts = AddContainer(stash, catalog, "parts_case");
+            PutInside(parts, stash, catalog, "scrap");
+
+            string text = FacilityUpgrade.RequirementText(catalog, stash, 150, new[] { "scrap", "wire" });
+
+            StringAssert.Contains("废料×1", text);
+            StringAssert.Contains("导线×1(有 0)", text);
+            Assert.IsFalse(text.Contains("废料×1(有"), "零件盒里的废料应被算作已有");
         }
     }
 }

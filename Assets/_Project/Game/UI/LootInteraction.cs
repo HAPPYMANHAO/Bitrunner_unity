@@ -367,7 +367,7 @@ namespace BitRunner.Game
                     out placed,
                     out error))
             {
-                ItemTransfer.PreserveContainer(item, placed);
+                ItemTransfer.PreserveAll(item, placed);
                 return true;
             }
 
@@ -382,7 +382,7 @@ namespace BitRunner.Game
                     out placed,
                     out error))
             {
-                ItemTransfer.PreserveContainer(item, placed);
+                ItemTransfer.PreserveAll(item, placed);
                 return true;
             }
 
@@ -443,7 +443,7 @@ namespace BitRunner.Game
 
                 if (stored)
                 {
-                    ItemTransfer.PreserveContainer(_item, placed);
+                    ItemTransfer.PreserveAll(_item, placed);
                     _source.Bag.Remove(_item.InstanceId);
                     if (ItemTaken != null)
                     {

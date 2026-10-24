@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using BitRunner.Core;
 using UnityEngine;
 
@@ -12,9 +11,25 @@ namespace BitRunner.Game
         public static DivePod Pod { get; private set; }
         public static BitMine Mine { get; private set; }
         public static CraftingStation Craft { get; private set; }
+        public static CpuCore Cpu { get; private set; }
+        public static InsuranceHub Insurance { get; private set; }
+        public static StorageRack Rack { get; private set; }
+        public static CommsHub Comms { get; private set; }
+        public static QuestLog Quests { get; private set; }
+        public static NpcMarket NpcStocks { get; private set; }
         public static BagInventory Stash { get; private set; }
         public static BagInventory PlayerBag { get; private set; }
         public static BagInventory Secure { get; private set; }
+
+        /// <summary>
+        /// 中央处理器的芯片网格。**不占战斗背包格子**——这是本作能同时做 RPG 成长
+        /// 与背包解谜的结构性原因（见 docs/ITEM_TIER_PLAN.md §3）。
+        /// </summary>
+        public static BagInventory CpuGrid
+        {
+            get { return Cpu != null ? Cpu.Grid : null; }
+        }
+
         public static string CurrentDiveName { get; private set; }
         public static string LastMessage { get; set; }
         public static ExpeditionScenario Scenario { get; private set; }
@@ -24,8 +39,49 @@ namespace BitRunner.Game
         public static bool HasPendingEncounter { get; private set; }
         public static string PendingEnemyId { get; private set; }
 
-        public const int ExpeditionMaxHp = 40;
+        /// <summary>上一次阵亡清算的结果，供结算界面复述。</summary>
+        public static ExpeditionAttrition.Report LastAttrition { get; private set; }
+
+        /// <summary>没有任何芯片时的玩家生命上限。所有额外生命都必须来自 CPU（决策：MaxHp 属于 CPU）。</summary>
+        public const int BaseMaxHp = 40;
+
+        /// <summary>没有任何芯片时的每回合基础能量。芯片最多再 +1，且不可叠加。</summary>
+        public const int BaseEnergyPerTurn = 3;
+
+        /// <summary>CPU L1 的空间（2×2）。升级扩容见 <see cref="CpuCore"/>。</summary>
+        public const int CpuGridSize = 2;
+
         private const int PostCombatHeal = 4;
+
+        private static TraitEngine _traitEngine;
+
+        /// <summary>
+        /// 玩家生命上限 = 底板 + CPU 芯片加成。护甲不提供 HP，只管减伤——
+        /// 两处给同一个数值会堆叠失控，也会削弱 CPU 的成长感。
+        /// </summary>
+        public static int ExpeditionMaxHp
+        {
+            get { return CpuModifiers.ApplyMaxHp(BaseMaxHp); }
+        }
+
+        /// <summary>当前 CPU 芯片提供的全局加成。芯片随时可换，换完立刻反映到下一场战斗。</summary>
+        public static GlobalModifiers CpuModifiers
+        {
+            get
+            {
+                if (CpuGrid == null || Catalog == null)
+                {
+                    return GlobalModifiers.None;
+                }
+
+                if (_traitEngine == null)
+                {
+                    _traitEngine = new TraitEngine(Catalog);
+                }
+
+                return _traitEngine.EvaluateChips(CpuGrid);
+            }
+        }
 
         public static bool ExpeditionActive
         {
@@ -44,6 +100,13 @@ namespace BitRunner.Game
             Stash = null;
             PlayerBag = null;
             Secure = null;
+            Cpu = null;
+            Insurance = null;
+            Rack = null;
+            Comms = null;
+            Quests = null;
+            NpcStocks = null;
+            _traitEngine = null;
             LastMessage = null;
             Scenario = null;
             ExpeditionHp = 0;
@@ -52,6 +115,7 @@ namespace BitRunner.Game
             HasPendingEncounter = false;
             PendingEnemyId = null;
             CurrentDiveName = null;
+            LastAttrition = default(ExpeditionAttrition.Report);
         }
 
         public static void EnsureInitialized()
@@ -101,24 +165,47 @@ namespace BitRunner.Game
             {
                 Mine.EnsureFilledForDay(Campaign.Week, Campaign.Day);
             }
+
+            int today = QuestLog.Today(Campaign);
+
+            if (NpcStocks != null)
+            {
+                NpcStocks.EnsureAll(today);
+            }
+
+            if (Quests != null)
+            {
+                // 先判超时，再重算持有类目标——顺序反了的话，超时任务会先被刷成 Ready。
+                Quests.Tick(Comms, today);
+                Quests.RefreshStatic(Catalog, Stash, PlayerBag, Campaign);
+            }
         }
 
         public static void StartNewGame()
         {
             Catalog = DefaultItemLibrary.CreateCatalog();
-            Stash = new BagInventory(6, 10);
+            Cpu = new CpuCore();
+            Insurance = new InsuranceHub();
+            Rack = new StorageRack();
+            Stash = new BagInventory(StorageRack.Width, StorageRack.HeightForLevel(Rack.Level));
             PlayerBag = new BagInventory(6, 5);
-            Secure = new BagInventory(SecureContainerRules.Width, SecureContainerRules.Height);
+            Secure = new BagInventory(
+                InsuranceHub.WidthForLevel(Insurance.Level),
+                InsuranceHub.HeightForLevel(Insurance.Level));
+            _traitEngine = new TraitEngine(Catalog);
             var wallet = new ItemBitWallet(Stash, Catalog);
-            Campaign = new CampaignState(new[] { 600, 900, 1200 }, wallet);
+            Campaign = new CampaignState(CampaignState.CreateDefaultInstallments(), wallet);
             Merchant = new Merchant(Catalog);
             Pod = new DivePod();
             Mine = new BitMine();
             Craft = new CraftingStation();
+            Comms = new CommsHub();
+            Quests = new QuestLog();
+            NpcStocks = new NpcMarket(Catalog);
             Place(Pod.Grid, "dive_basic", 0, 0);
             EnsureMerchantStockForDay();
             EnsureFacilitiesForDay();
-            LastMessage = "7 次探索内缴清 600 bit。";
+            LastMessage = "本周应缴 " + Campaign.CurrentDue + " bit，7 次探索内筹齐。";
 
             Place(PlayerBag, "plate", 0, 0);
             Place(PlayerBag, "blade", 2, 0);
@@ -142,10 +229,22 @@ namespace BitRunner.Game
             Place(Stash, "weapon_crate", 0, 4);
             Place(Stash, "circuit", 2, 3);
             Place(Stash, "alloy", 4, 2);
+            // 密钥盒：密钥是永久物，越深网体积越大（最深 3×3），散在仓库里会吃掉整块空间。
+            Place(Stash, "key_box", 4, 4);
+
+            // 开局就送老陈的上行链路并直接插进通讯中枢：和开局送芯片同理，
+            // 玩家一进基地就能看到「通讯」页里有个人在等他，不用先学会拖拽才知道这套系统存在。
+            Place(Comms.Grid, "uplink_junk", 0, 0);
+
+            // 开局就送两张芯片并直接插在 CPU 上：玩家一进基地就能看到「生命上限 40 → 55」，
+            // 不需要先学会拖拽才知道这套系统存在。
+            Place(Cpu.Grid, "chip_hp_1", 0, 0);
+            Place(Cpu.Grid, "chip_armor_1", 1, 0);
             ItemDurability.EnsureBag(PlayerBag, Catalog);
             ItemDurability.EnsureBag(Secure, Catalog);
             ItemDurability.EnsureBag(Stash, Catalog);
             Campaign.AddBit(300);
+            NpcStocks.EnsureAll(QuestLog.Today(Campaign), true);
         }
 
         public static bool BeginExpedition()
@@ -169,6 +268,9 @@ namespace BitRunner.Game
                 return false;
             }
 
+            // 按地点档位重排掉落池：低档物品不会在高级地点刷出，高档物品也不会在开局就掉。
+            plan.LootPool = LootTierTable.Expand(plan.LootPool, Catalog, plan.TierMin, plan.TierWeights);
+
             Scenario = ExpeditionScenario.Generate(
                 DaySeed(Campaign.Week, Campaign.Day) + plan.SeedOffset,
                 plan);
@@ -178,6 +280,8 @@ namespace BitRunner.Game
             EncountersCleared = 0;
             LootTaken = 0;
             HasPendingEncounter = false;
+            LastAttrition = default(ExpeditionAttrition.Report);
+            ExpeditionAttrition.MarkOwned(PlayerBag);
             LastMessage = plan.Name + " 开始。第 " + Campaign.Day + "/7 天。";
             return true;
         }
@@ -202,6 +306,7 @@ namespace BitRunner.Game
             }
 
             LastMessage = "收取比特矿场 " + amount + " bit，已存入仓库。";
+            Quests.ReportMineCollected();
             return amount;
         }
 
@@ -223,10 +328,131 @@ namespace BitRunner.Game
             return Craft.TryUpgrade(Campaign, Stash, out error);
         }
 
+        public static bool UpgradeCpu(out string error)
+        {
+            EnsureInitialized();
+            return Cpu.TryUpgrade(Campaign, Stash, out error);
+        }
+
+        public static bool UpgradeInsurance(out string error)
+        {
+            EnsureInitialized();
+            if (!Insurance.TryUpgrade(Campaign, Stash, out error))
+            {
+                return false;
+            }
+
+            Secure.ResizeTo(
+                InsuranceHub.WidthForLevel(Insurance.Level),
+                InsuranceHub.HeightForLevel(Insurance.Level));
+            return true;
+        }
+
+        public static bool UpgradeStorage(out string error)
+        {
+            EnsureInitialized();
+            if (!Rack.TryUpgrade(Campaign, Stash, out error))
+            {
+                return false;
+            }
+
+            // 支付是从仓库里扣的，所以必须在扣完之后再换尺寸。
+            Stash.ResizeTo(StorageRack.Width, StorageRack.HeightForLevel(Rack.Level));
+            return true;
+        }
+
+        public static bool UpgradeComms(out string error)
+        {
+            EnsureInitialized();
+            return Comms.TryUpgrade(Campaign, Stash, out error);
+        }
+
+        public static bool AcceptQuest(string questId, out string error)
+        {
+            EnsureInitialized();
+
+            QuestDefinition definition;
+            if (!QuestLibrary.TryGet(questId, out definition))
+            {
+                error = "任务不存在。";
+                return false;
+            }
+
+            if (!Quests.TryAccept(definition, Comms, QuestLog.Today(Campaign), out error))
+            {
+                return false;
+            }
+
+            // 持有类目标（交付物品 / 累计缴款）接取时可能已经达成，立刻算一次。
+            Quests.RefreshStatic(Catalog, Stash, PlayerBag, Campaign);
+            error = null;
+            return true;
+        }
+
+        public static bool ClaimQuest(string questId, out string error)
+        {
+            EnsureInitialized();
+
+            QuestDefinition definition;
+            if (!QuestLibrary.TryGet(questId, out definition))
+            {
+                error = "任务不存在。";
+                return false;
+            }
+
+            return Quests.TryClaim(definition, Comms, Campaign, Stash, Catalog, out error);
+        }
+
+        public static bool AbandonQuest(string questId, out string error)
+        {
+            EnsureInitialized();
+
+            QuestDefinition definition;
+            if (!QuestLibrary.TryGet(questId, out definition))
+            {
+                error = "任务不存在。";
+                return false;
+            }
+
+            return Quests.Abandon(definition, Comms, QuestLog.Today(Campaign), out error);
+        }
+
+        public static bool BuyFromNpc(string npcId, int instanceId, out string error)
+        {
+            EnsureInitialized();
+
+            NpcDefinition npc;
+            if (!NpcLibrary.TryGet(npcId, out npc))
+            {
+                error = "联系人不存在。";
+                return false;
+            }
+
+            return NpcStocks.TryBuy(npc, instanceId, Campaign, Stash, out error);
+        }
+
         public static bool CraftItem(out PlacedItem placed, out string error)
         {
             EnsureInitialized();
             return Craft.TryCraft(Catalog, Stash, out placed, out error);
+        }
+
+        /// <summary>
+        /// 组装进入战斗的玩家角色。生命上限、基础能量、护甲基底全部从 CPU 快照注入，
+        /// 战斗过程中不再变化——换芯片从下一场战斗开始生效。
+        /// </summary>
+        public static CombatActor CreatePlayerActor()
+        {
+            EnsureInitialized();
+            GlobalModifiers modifiers = CpuModifiers;
+            return new CombatActor(
+                "player",
+                "跑者",
+                modifiers.ApplyMaxHp(BaseMaxHp),
+                BaseEnergyPerTurn + modifiers.BaseEnergy,
+                PlayerBag,
+                true,
+                modifiers.ApplyArmorBase());
         }
 
         public static ExpeditionResolution ResolveExpeditionAction(string actionId)
@@ -315,6 +541,8 @@ namespace BitRunner.Game
 
         public static void CompleteEncounter(int hp)
         {
+            // 先把敌人 id 取出来：下面立刻要清空 PendingEnemyId，而任务需要它。
+            string enemyId = PendingEnemyId;
             HasPendingEncounter = false;
             PendingEnemyId = null;
 
@@ -328,6 +556,13 @@ namespace BitRunner.Game
             }
 
             EncountersCleared++;
+            if (Quests != null)
+            {
+                // C-10 会把第二个参数换成 CrisisRules.IsCrisisBoss(enemyId)，
+                // 那时击杀危机首领才能推进 q_seed_1。
+                Quests.ReportKill(enemyId, false);
+            }
+
             if (Scenario == null)
             {
                 LastMessage = "战斗结束。";
@@ -345,6 +580,9 @@ namespace BitRunner.Game
                 return;
             }
 
+            // 必须先快照：下面会把 Scenario 置 null，而任务需要知道通的是哪个地点。
+            string siteId = Scenario != null ? Scenario.SiteId : null;
+
             Scenario = null;
             HasPendingEncounter = false;
             PendingEnemyId = null;
@@ -353,9 +591,21 @@ namespace BitRunner.Game
             EncountersCleared = 0;
             LootTaken = 0;
 
+            ExpeditionAttrition.Report attrition = default(ExpeditionAttrition.Report);
             if (!survived)
             {
-                ClearBag();
+                attrition = ExpeditionAttrition.Apply(PlayerBag);
+                LastAttrition = attrition;
+            }
+
+            ExpeditionAttrition.ClearMarks(PlayerBag);
+
+            // 只有活着回来才算通关。阵亡不算「打过了」——这一点和掉落实体一致：
+            // 没带回来的东西都不算你的。
+            if (survived && !string.IsNullOrEmpty(siteId) && Quests != null)
+            {
+                // C-10 会把第二个参数换成危机标记。
+                Quests.ReportDiveCleared(siteId, false);
             }
 
             ExpeditionResult result = Campaign.SettleExpedition();
@@ -366,36 +616,78 @@ namespace BitRunner.Game
                 EnsureFacilitiesForDay();
             }
 
+            LastMessage = ComposeSettlementText(survived, attrition, result);
+        }
+
+        /// <summary>把一次结算拼成底部消息栏能放下的一句话。</summary>
+        private static string ComposeSettlementText(
+            bool survived,
+            ExpeditionAttrition.Report attrition,
+            ExpeditionResult result)
+        {
             if (result.PaymentDue)
             {
                 if (!result.PaymentSucceeded)
                 {
-                    LastMessage = "缴款失败。游戏结束。";
-                    return;
+                    return "筹不齐 " + result.DueThisWeek + " bit，债务违约。游戏结束。";
                 }
 
-                if (Campaign.Status == CampaignStatus.Victory)
+                if (Campaign.Status != CampaignStatus.Active)
                 {
-                    LastMessage = "债务已清，你自由了。";
-                    return;
+                    return EndingText(Campaign.Ending);
                 }
 
-                LastMessage = "已缴 " + result.Paid + " bit。第 " + Campaign.Week + " 周开始。";
-                return;
+                string paid = "已缴 " + result.Paid + " bit，第 " + Campaign.Week + " 周应缴 "
+                              + Campaign.CurrentDue + "。";
+                return survived ? paid : LostText(attrition) + " " + paid;
             }
 
-            LastMessage = survived
-                ? "成功返回。第 " + Campaign.Day + "/7 天。"
-                : "背包丢失。第 " + Campaign.Day + "/7 天。";
+            if (survived)
+            {
+                return "成功返回。第 " + Campaign.Day + "/7 天。";
+            }
+
+            return LostText(attrition) + " 第 " + Campaign.Day + "/7 天。";
         }
 
-        public static void ClearBag()
+        private static string LostText(ExpeditionAttrition.Report attrition)
         {
-            var items = new List<PlacedItem>(PlayerBag.Items);
-            for (int i = 0; i < items.Count; i++)
+            string text = "你被抬了回来：丢弃 " + attrition.Lost + " 件战利品，保住 " + attrition.Kept + " 件自带装备";
+            if (attrition.Rescued > 0)
             {
-                PlayerBag.Remove(items[i].InstanceId);
+                text += "（抢救 " + attrition.Rescued + " 件）";
             }
+
+            return text + "。";
+        }
+
+        private static string EndingText(CampaignEnding ending)
+        {
+            switch (ending)
+            {
+                case CampaignEnding.BossSlain:
+                    return "日冕战斗机甲倒下。你切断了它的债务，也切断了追兵。";
+                case CampaignEnding.Escaped:
+                    return "你带着能带走的一切离开了这片空域。";
+                default:
+                    return "债务违约。游戏结束。";
+            }
+        }
+
+        /// <summary>
+        /// 主动终结战役。击杀终局 Boss 与主动逃亡都走这里，破产由结算内部触发。
+        /// 逃亡入口的内容（买断价、解锁周次）留给 C-8，这里只提供状态机接口。
+        /// </summary>
+        public static bool TryEndCampaign(CampaignEnding ending)
+        {
+            EnsureInitialized();
+            if (!Campaign.EndCampaign(ending))
+            {
+                return false;
+            }
+
+            LastMessage = EndingText(ending);
+            return true;
         }
 
         private static void Place(BagInventory bag, string itemId, int x, int y)

@@ -8,7 +8,13 @@ namespace BitRunner.Core
         Wild,
         Facility,
         Military,
-        Signal
+        Signal,
+
+        /// <summary>深空潜网：失压的轨道残骸，气压与低温是主要威胁。</summary>
+        Orbital,
+
+        /// <summary>核心潜网：终局区域，只有一台还在运转的东西。</summary>
+        Core
     }
 
     public enum ExpeditionRisk
@@ -314,6 +320,24 @@ namespace BitRunner.Core
                         new ActionTemplate("dive", "跃入深井", "跃", "不排队列，直接跳进核心通道。", ExpeditionRisk.High),
                         new ActionTemplate("listen", "监听对话", "听", "在暗处听巡逻者交流，寻找漏洞。", ExpeditionRisk.Low)
                     });
+                case ExpeditionSiteTheme.Orbital:
+                    return new ActionTemplatePool(new[]
+                    {
+                        new ActionTemplate("scan", "扫描舱压", "扫", "先确认哪几段还在加压，哪几段已经真空。", ExpeditionRisk.Low),
+                        new ActionTemplate("patch_hull", "补漏封舱", "补", "用随身材料堵住漏点，给自己留一条退路。", ExpeditionRisk.Medium),
+                        new ActionTemplate("tether", "系缆跳跃", "缆", "扣上缆绳，跨过断裂的舱段。", ExpeditionRisk.Medium),
+                        new ActionTemplate("burn_through", "切割舱壁", "割", "直接切穿舱壁，走最短但不安全的那条路。", ExpeditionRisk.High),
+                        new ActionTemplate("drift", "静默漂浮", "漂", "关掉照明，随风漂过去。", ExpeditionRisk.Low)
+                    });
+                case ExpeditionSiteTheme.Core:
+                    return new ActionTemplatePool(new[]
+                    {
+                        new ActionTemplate("decode", "读取主序", "序", "从还在运行的核心上读出它的节律。", ExpeditionRisk.Low),
+                        new ActionTemplate("vent", "泄压降温", "泄", "先把热量排掉，否则连靠近都做不到。", ExpeditionRisk.Medium),
+                        new ActionTemplate("overload", "过载主环", "载", "把核心推向过载，逼它提前换相。", ExpeditionRisk.High),
+                        new ActionTemplate("synchronize", "同步相位", "同", "把自己的节奏对齐它，趁间隙穿过去。", ExpeditionRisk.Medium),
+                        new ActionTemplate("strike", "打击核心", "击", "直接对还在运转的东西动手。", ExpeditionRisk.High)
+                    });
                 default:
                     return new List<ActionTemplate>
                     {
@@ -341,7 +365,8 @@ namespace BitRunner.Core
             int alert = Alert;
             int damage = _hazardDamage + stage * 2;
 
-            if (template.Id == "scan" || template.Id == "decode" || template.Id == "track" || template.Id == "listen")
+            if (template.Id == "scan" || template.Id == "decode" || template.Id == "track" || template.Id == "listen"
+                || template.Id == "drift" || template.Id == "synchronize" || template.Id == "vent")
             {
                 Add(action, ExpeditionOutcomeKind.Clue, 46, "你读出了下一步的节奏。视野里出现了新的选择。", 0);
                 Add(action, ExpeditionOutcomeKind.Loot, 22, "扫描结果里夹着一处未登记的物资点。", 0);
@@ -356,14 +381,16 @@ namespace BitRunner.Core
                 Add(action, ExpeditionOutcomeKind.Damage, 10, "你被地上的断线绊倒，擦伤了手臂。", 0);
                 Add(action, ExpeditionOutcomeKind.Nothing, 6, "你贴着墙通过，没有惊动任何人。", 0);
             }
-            else if (template.Id == "force" || template.Id == "breach" || template.Id == "suppress" || template.Id == "rush" || template.Id == "dive")
+            else if (template.Id == "force" || template.Id == "breach" || template.Id == "suppress" || template.Id == "rush" || template.Id == "dive"
+                     || template.Id == "burn_through" || template.Id == "overload" || template.Id == "strike")
             {
                 Add(action, ExpeditionOutcomeKind.Combat, 52 + stage * 3, "门后的威胁被惊动了。", 1);
                 Add(action, ExpeditionOutcomeKind.Loot, 28, "你用蛮力拆开了一个上锁的柜子。", 0);
                 Add(action, ExpeditionOutcomeKind.Damage, 14, "碎屑和电弧一起扑了过来。", 0);
                 Add(action, ExpeditionOutcomeKind.Alert, 6, "整层区域都听见了你的动静。", 2);
             }
-            else if (template.Id == "search" || template.Id == "forage" || template.Id == "hack")
+            else if (template.Id == "search" || template.Id == "forage" || template.Id == "hack"
+                     || template.Id == "patch_hull" || template.Id == "tether")
             {
                 Add(action, ExpeditionOutcomeKind.Loot, 58, "你找到了能带走的东西。", 0);
                 Add(action, ExpeditionOutcomeKind.Clue, 18, "一件旧记录说明了前面的布局。", 0);
@@ -519,6 +546,16 @@ namespace BitRunner.Core
                 return ExpeditionSiteTheme.Signal;
             }
 
+            if (keyItemId == "dive_deep")
+            {
+                return ExpeditionSiteTheme.Orbital;
+            }
+
+            if (keyItemId == "dive_core")
+            {
+                return ExpeditionSiteTheme.Core;
+            }
+
             return ExpeditionSiteTheme.Facility;
         }
 
@@ -535,6 +572,12 @@ namespace BitRunner.Core
                     break;
                 case ExpeditionSiteTheme.Signal:
                     suffix = "信号深井";
+                    break;
+                case ExpeditionSiteTheme.Orbital:
+                    suffix = "失压残骸";
+                    break;
+                case ExpeditionSiteTheme.Core:
+                    suffix = "核心环带";
                     break;
                 default:
                     suffix = "废弃设施";
@@ -554,6 +597,10 @@ namespace BitRunner.Core
                     return "闸门后的应急灯还亮着。旧防线没有完全断电，任何一次靠近都可能被记录。";
                 case ExpeditionSiteTheme.Signal:
                     return "通道深处传来不属于这里的脉冲。你听见的不是回声，而是某个仍在运行的系统。";
+                case ExpeditionSiteTheme.Orbital:
+                    return "重力只剩一点点。断裂的舱段之间没有地板，只有系缆和真空——每一步都在赌哪块甲板还连着。";
+                case ExpeditionSiteTheme.Core:
+                    return "这里没有走廊，只有环绕核心的环带。热浪把空气烤得扭曲，你能听见它在换相。";
                 default:
                     return "你停在断裂的走廊前。空气里有金属和尘土的味道，深处偶尔传来电流声。";
             }

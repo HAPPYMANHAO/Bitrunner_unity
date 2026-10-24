@@ -385,7 +385,7 @@ namespace BitRunner.Core
 
             for (int i = 0; i < profile.Required.Length; i++)
             {
-                if (!TryPlaceSlot(bag, catalog, profile.Required[i], random, result))
+                if (!TryPlaceSlot(bag, catalog, archetype.MaxItemLevel, profile.Required[i], random, result))
                 {
                     return false;
                 }
@@ -395,7 +395,7 @@ namespace BitRunner.Core
             for (int i = 0; i < profile.Optional.Length; i++)
             {
                 int spent;
-                TryPlaceOptional(bag, catalog, profile.Optional[i], random, remainingBudget, result, out spent);
+                TryPlaceOptional(bag, catalog, archetype.MaxItemLevel, profile.Optional[i], random, remainingBudget, result, out spent);
                 remainingBudget -= spent;
             }
 
@@ -406,11 +406,12 @@ namespace BitRunner.Core
         private static bool TryPlaceSlot(
             BagInventory bag,
             ItemCatalog catalog,
+            int maxItemLevel,
             EnemyLoadoutSlot slot,
             Random random,
             List<EnemyItemPlacement> result)
         {
-            List<ItemDefinition> candidates = Candidates(catalog, slot);
+            List<ItemDefinition> candidates = Candidates(catalog, slot, maxItemLevel);
             if (candidates.Count == 0)
             {
                 return false;
@@ -459,6 +460,7 @@ namespace BitRunner.Core
         private static bool TryPlaceOptional(
             BagInventory bag,
             ItemCatalog catalog,
+            int maxItemLevel,
             EnemyLoadoutSlot slot,
             Random random,
             int remainingBudget,
@@ -471,7 +473,7 @@ namespace BitRunner.Core
                 return false;
             }
 
-            List<ItemDefinition> candidates = Candidates(catalog, slot);
+            List<ItemDefinition> candidates = Candidates(catalog, slot, maxItemLevel);
             Shuffle(candidates, random);
             for (int i = 0; i < candidates.Count; i++)
             {
@@ -519,11 +521,16 @@ namespace BitRunner.Core
             return false;
         }
 
-        private static List<ItemDefinition> Candidates(ItemCatalog catalog, EnemyLoadoutSlot slot)
+        private static List<ItemDefinition> Candidates(ItemCatalog catalog, EnemyLoadoutSlot slot, int maxItemLevel)
         {
             var candidates = new List<ItemDefinition>();
             foreach (ItemDefinition definition in catalog.Definitions)
             {
+                if (definition.Level > maxItemLevel)
+                {
+                    continue;
+                }
+
                 if (slot.Matches(definition))
                 {
                     candidates.Add(definition);

@@ -20,6 +20,12 @@ namespace BitRunner.Core
         public const int DefaultStockHeight = 5;
         public const int BuyPriceMultiplier = 3;
 
+        /// <summary>
+        /// 收购价占物品价值的百分比。低于 100 是为了让「用」比「卖」划算——
+        /// 否则捡到就变现永远优于带着装备冒险，装备的存在意义会被经济系统吃掉。
+        /// </summary>
+        public const int SellRatioPercent = 50;
+
         private readonly ItemCatalog _catalog;
         private readonly string[] _eligibleItemIds;
         private readonly List<MerchantOffer> _offers = new List<MerchantOffer>();
@@ -40,6 +46,7 @@ namespace BitRunner.Core
                 if (definition.Category == ItemCategory.Loot
                     || definition.Category == ItemCategory.Material
                     || definition.Category == ItemCategory.Key
+                    || definition.Category == ItemCategory.Uplink
                     || definition.Category == ItemCategory.Currency
                     || definition.Category == ItemCategory.Container)
                 {
@@ -56,6 +63,18 @@ namespace BitRunner.Core
 
             ids.Sort(StringComparer.Ordinal);
             _eligibleItemIds = ids.ToArray();
+        }
+
+        /// <summary>收购价。至少给 1 bit，保证再破的东西也卖得掉。</summary>
+        public static int SaleValue(ItemDefinition definition, int count)
+        {
+            if (definition == null || definition.Value <= 0)
+            {
+                return 0;
+            }
+
+            int amount = definition.Value * (count > 0 ? count : 1) * SellRatioPercent / 100;
+            return amount > 0 ? amount : 1;
         }
 
         public IReadOnlyList<MerchantOffer> Offers
@@ -81,12 +100,36 @@ namespace BitRunner.Core
 
         public void RestockForDay(int week, int day, int seed, int stockSize = DefaultStockSize)
         {
-            Restock(seed, stockSize);
+            Restock(seed, stockSize, MaxTierForWeek(week));
             StockWeek = week;
             StockDay = day;
         }
 
+        /// <summary>
+        /// 商店库存的档位上限：W1 最高 T2，W2–W3 最高 T3，W4 最高 T4，W5 起解禁 T5。
+        /// 和掉落门控是两道独立的门——钱再多，开局也买不到 T5。
+        /// </summary>
+        public static int MaxTierForWeek(int week)
+        {
+            if (week <= 1)
+            {
+                return 2;
+            }
+
+            if (week <= 3)
+            {
+                return 3;
+            }
+
+            return week <= 4 ? 4 : 5;
+        }
+
         public void Restock(int seed, int stockSize = DefaultStockSize)
+        {
+            Restock(seed, stockSize, 5);
+        }
+
+        public void Restock(int seed, int stockSize, int maxTier)
         {
             _offers.Clear();
             ClearStock();
@@ -97,6 +140,18 @@ namespace BitRunner.Core
             }
 
             var ids = new List<string>(_eligibleItemIds);
+            if (maxTier < 5)
+            {
+                for (int i = ids.Count - 1; i >= 0; i--)
+                {
+                    ItemDefinition candidate;
+                    if (_catalog.TryGet(ids[i], out candidate) && candidate.Level > maxTier)
+                    {
+                        ids.RemoveAt(i);
+                    }
+                }
+            }
+
             var random = new Random(seed);
 
             for (int i = ids.Count - 1; i > 0; i--)
@@ -339,7 +394,7 @@ namespace BitRunner.Core
                 return false;
             }
 
-            value = definition.Value * item.Count;
+            value = SaleValue(definition, item.Count);
             campaign.AddBit(value);
             _offers.Add(new MerchantOffer
             {
@@ -399,7 +454,7 @@ namespace BitRunner.Core
 
             int count = item.Count;
             source.Remove(instanceId);
-            value = definition.Value * count;
+            value = SaleValue(definition, count);
             campaign.AddBit(value);
             error = null;
             return true;
