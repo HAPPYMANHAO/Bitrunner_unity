@@ -382,7 +382,7 @@ namespace BitRunner.Game
             _hpValue.text = GameSession.ExpeditionHp + "/" + GameSession.ExpeditionMaxHp;
             _bagValue.text = _bag.FreeCellCount + " 格";
             _alertValue.text = _scenario.Alert.ToString();
-            _stageValue.text = _scenario.Stage + "/" + ExpeditionScenario.MaxStages;
+            _stageValue.text = _scenario.Stage + "/" + _scenario.StageCount;
             _dayValue.text = GameSession.Campaign.Day + "/7";
 
             SetFill(_hpFill, GameSession.ExpeditionHp / (float)GameSession.ExpeditionMaxHp, HpColor);

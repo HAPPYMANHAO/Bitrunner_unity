@@ -56,6 +56,7 @@ namespace BitRunner.Game
         private Cell _grabOffset;
         private BaseBagSource _targetBag;
         private Cell _target;
+        private Cell _hoverCell;
         private bool _validTarget;
         private bool _overSell;
         private bool _overDiscard;
@@ -381,6 +382,7 @@ namespace BitRunner.Game
                 _grabOffset = new Cell(cell.X - item.Origin.X, cell.Y - item.Origin.Y);
                 _targetBag = null;
                 _target = item.Origin;
+                _hoverCell = cell;
                 _validTarget = false;
                 _overSell = false;
                 _overDiscard = false;
@@ -407,6 +409,7 @@ namespace BitRunner.Game
             {
                 _targetBag = bagUnder;
                 _target = new Cell(cell.X - _grabOffset.X, cell.Y - _grabOffset.Y);
+                _hoverCell = cell;
 
                 ItemShape shape = _item.BaseShape.Rotate(_rotation);
                 int ignoreId = bagUnder == _source ? _item.InstanceId : 0;
@@ -672,6 +675,55 @@ namespace BitRunner.Game
             UpdateDrag(screen);
         }
 
+        /// <summary>
+        /// 把拖拽中的物品直接塞进光标下的容器。返回 true 表示已收纳；
+        /// containerAttempted 为 true 表示光标确实在容器上（失败时用于给出原因）。
+        /// </summary>
+        private bool TryStoreInContainerUnderCursor(out bool containerAttempted, out string message)
+        {
+            containerAttempted = false;
+            message = null;
+
+            if (_source == null || _source.IsMerchant || _targetBag == null || _targetBag.IsMerchant)
+            {
+                return false;
+            }
+
+            int occupant = _targetBag.Bag.Grid.GetOccupant(_hoverCell.X, _hoverCell.Y);
+            if (occupant == 0 || occupant == _item.InstanceId)
+            {
+                return false;
+            }
+
+            PlacedItem containerItem;
+            if (!_targetBag.Bag.TryGet(occupant, out containerItem))
+            {
+                return false;
+            }
+
+            ItemDefinition containerDefinition = _catalog.Get(containerItem.DefinitionId);
+            if (containerDefinition == null || containerDefinition.ContainerSpec == null)
+            {
+                return false;
+            }
+
+            containerAttempted = true;
+            if (containerItem.Container == null)
+            {
+                ContainerOps.Ensure(containerItem, containerDefinition);
+            }
+
+            string error;
+            if (!ContainerOps.TryPut(containerItem.Container, _source.Bag, _item.InstanceId, _catalog, out error))
+            {
+                message = string.IsNullOrEmpty(error) ? "容器无法收纳这件物品。" : error;
+                return false;
+            }
+
+            message = "已收纳到 " + containerDefinition.DisplayName + "。";
+            return true;
+        }
+
         private void EndDrag()
         {
             if (_item == null)
@@ -730,6 +782,15 @@ namespace BitRunner.Game
                     message = error;
                 }
                 }
+            }
+            else if (TryStoreInContainerUnderCursor(out bool containerAttempted, out string containerMessage))
+            {
+                changed = true;
+                message = containerMessage;
+            }
+            else if (containerAttempted)
+            {
+                message = containerMessage;
             }
             else if (_targetBag != null && _targetBag.IsMerchant && _source != null && !_source.IsMerchant && _validTarget)
             {

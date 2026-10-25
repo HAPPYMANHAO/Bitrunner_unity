@@ -12,6 +12,7 @@ namespace BitRunner.Core
         public int EnemyCount;
         public int LootCount;
         public int HazardCount;
+        public int StageCount = 3;
         public int SeedOffset;
         public string[] LootPool;
         public string[] EnemyPool;
@@ -35,6 +36,7 @@ namespace BitRunner.Core
         public int EnemyCount = 5;
         public int LootCount = 9;
         public int HazardCount = 6;
+        public int StageCount = 3;
         public int SeedOffset;
         public string[] LootPool;
         public string[] EnemyPool;
@@ -153,6 +155,7 @@ namespace BitRunner.Core
                 EnemyCount = 2,
                 LootCount = 4,
                 HazardCount = 1,
+                StageCount = 4,
                 SeedOffset = 19,
                 LootPool = WildLootPool,
                 EnemyPool = WildEnemyPool,
@@ -169,6 +172,7 @@ namespace BitRunner.Core
                 EnemyCount = 5,
                 LootCount = 9,
                 HazardCount = 6,
+                StageCount = 5,
                 LootPool = BaseLootPool,
                 EnemyPool = BasicEnemyPool,
                 TierMin = 1,
@@ -184,6 +188,7 @@ namespace BitRunner.Core
                 EnemyCount = 7,
                 LootCount = 10,
                 HazardCount = 7,
+                StageCount = 5,
                 SeedOffset = 131,
                 LootPool = RichLootPool,
                 EnemyPool = MilitaryEnemyPool,
@@ -200,6 +205,7 @@ namespace BitRunner.Core
                 EnemyCount = 6,
                 LootCount = 12,
                 HazardCount = 8,
+                StageCount = 5,
                 SeedOffset = 257,
                 LootPool = RichLootPool,
                 EnemyPool = SignalEnemyPool,
@@ -216,6 +222,7 @@ namespace BitRunner.Core
                 EnemyCount = 9,
                 LootCount = 15,
                 HazardCount = 10,
+                StageCount = 6,
                 SeedOffset = 331,
                 LootPool = RichLootPool,
                 EnemyPool = DeepEnemyPool,
@@ -232,6 +239,7 @@ namespace BitRunner.Core
                 EnemyCount = 11,
                 LootCount = 18,
                 HazardCount = 12,
+                StageCount = 6,
                 SeedOffset = 419,
                 LootPool = RichLootPool,
                 EnemyPool = CoreEnemyPool,
@@ -377,6 +385,7 @@ namespace BitRunner.Core
                 EnemyCount = key.EnemyCount,
                 LootCount = key.LootCount,
                 HazardCount = key.HazardCount,
+                StageCount = key.StageCount,
                 SeedOffset = key.SeedOffset,
                 LootPool = key.LootPool,
                 EnemyPool = key.EnemyPool,

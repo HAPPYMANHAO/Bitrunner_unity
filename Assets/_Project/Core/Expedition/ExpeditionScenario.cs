@@ -96,7 +96,8 @@ namespace BitRunner.Core
 
     public sealed class ExpeditionScenario
     {
-        public const int MaxStages = 3;
+        /// <summary>每个潜网的探索阶段数，由潜网密钥决定（旧数据缺省 3）。</summary>
+        public int StageCount { get; private set; }
 
         private readonly Random _random;
         private readonly string[] _lootPool;
@@ -129,7 +130,8 @@ namespace BitRunner.Core
             string[] lootPool,
             string[] enemyPool,
             int lootPerFind,
-            int hazardDamage)
+            int hazardDamage,
+            int stageCount)
         {
             Seed = seed;
             Theme = theme;
@@ -140,6 +142,7 @@ namespace BitRunner.Core
             _enemyPool = enemyPool != null && enemyPool.Length > 0 ? enemyPool : new[] { "scavenger" };
             _lootPerFind = Math.Max(1, lootPerFind);
             _hazardDamage = Math.Max(1, hazardDamage);
+            StageCount = Math.Max(2, stageCount);
             _random = new Random(seed);
             LastResultText = intro;
             BuildOptions();
@@ -159,6 +162,7 @@ namespace BitRunner.Core
             string[] enemies = plan.EnemyPool;
             int lootPerFind = 2 + Math.Max(0, plan.LootCount) / 5;
             int hazardDamage = 4 + Math.Max(0, plan.HazardCount) / 3;
+            int stageCount = plan.StageCount > 0 ? plan.StageCount : 3;
 
             return new ExpeditionScenario(
                 seed,
@@ -169,7 +173,8 @@ namespace BitRunner.Core
                 loot,
                 enemies,
                 lootPerFind,
-                hazardDamage);
+                hazardDamage,
+                stageCount);
         }
 
         public ExpeditionResolution Resolve(string actionId, ExpeditionContext context)
@@ -214,7 +219,7 @@ namespace BitRunner.Core
             }
 
             Stage++;
-            if (Stage >= MaxStages)
+            if (Stage >= StageCount)
             {
                 BuildRetreatOnly();
             }
@@ -235,14 +240,14 @@ namespace BitRunner.Core
                 return false;
             }
 
-            if (Stage >= MaxStages)
+            if (Stage >= StageCount)
             {
                 error = "已经没有继续深入的时间。";
                 return false;
             }
 
             Stage++;
-            if (Stage >= MaxStages)
+            if (Stage >= StageCount)
             {
                 BuildRetreatOnly();
             }

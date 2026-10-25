@@ -147,14 +147,34 @@ namespace BitRunner.Tests
         {
             ExpeditionScenario scenario = ExpeditionScenario.Generate(123, MakePlan());
 
-            for (int i = 0; i < ExpeditionScenario.MaxStages; i++)
+            for (int i = 0; i < scenario.StageCount; i++)
             {
                 ExpeditionActionOption action = FirstNonExit(scenario);
                 Assert.IsNotNull(action);
                 scenario.Resolve(action.Id, Context());
             }
 
-            Assert.AreEqual(ExpeditionScenario.MaxStages, scenario.Stage);
+            Assert.AreEqual(scenario.StageCount, scenario.Stage);
+            Assert.AreEqual(1, scenario.CurrentOptions.Count);
+            Assert.IsTrue(scenario.CurrentOptions[0].IsExit);
+        }
+
+        [Test]
+        public void StageCountComesFromPlan()
+        {
+            DivePlan plan = MakePlan();
+            plan.StageCount = 4;
+            ExpeditionScenario scenario = ExpeditionScenario.Generate(321, plan);
+
+            Assert.AreEqual(4, scenario.StageCount);
+            for (int i = 0; i < 4; i++)
+            {
+                ExpeditionActionOption action = FirstNonExit(scenario);
+                Assert.IsNotNull(action, "第 " + (i + 1) + " 阶段仍有可选行动");
+                scenario.Resolve(action.Id, Context());
+            }
+
+            Assert.AreEqual(4, scenario.Stage);
             Assert.AreEqual(1, scenario.CurrentOptions.Count);
             Assert.IsTrue(scenario.CurrentOptions[0].IsExit);
         }
