@@ -534,7 +534,7 @@ EditMode 全量 **261/261 通过**（新增 14 条 `CpuModifierTests`）。
 |---|---|
 | `Core/Base/CpuCore.cs` | 新增。L1 2×2 → L5 5×4，升级费 400/800/1400/2600 + 材料；`MaxChipTier = Level`；`CanAccept` 只收 `ItemTag.CpuChip` |
 | `Core/Base/InsuranceHub.cs` | 新增。保险箱 2×2 → 3×2 → 3×3（4/6/9 格） |
-| `Core/Base/StorageRack.cs` | 新增。仓库 6×10 → 6×13 → 6×16（**只加高不加宽**，横向滚动没实现） |
+| `Core/Base/StorageRack.cs` | 新增。仓库 10×6 → 10×8 → 10×10（固定 10 列，只加行数） |
 | `Core/Inventory/BagResize.cs` | 新增。设施升级换尺寸时搬容器/耐久/绑定标记 |
 | `Core/Inventory/BagInventory.ResizeTo` | 新增。**原地**换尺寸，物品实例身份不变；放不下时整体回滚返回 false |
 | `Core/Items/DefaultItemLibrary.cs` | 15 张芯片：生命 ×5 / 底甲 ×5 / 能量 ×5 |

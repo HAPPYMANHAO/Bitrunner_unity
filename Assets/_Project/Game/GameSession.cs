@@ -226,7 +226,7 @@ namespace BitRunner.Game
             Place(Stash, "wire", 4, 1);
             Place(Stash, "dive_wild", 1, 1);
             Place(Stash, "scrap", 3, 1);
-            Place(Stash, "weapon_crate", 0, 4);
+            Place(Stash, "weapon_crate", 7, 0);
             Place(Stash, "circuit", 2, 3);
             Place(Stash, "alloy", 4, 2);
             // 密钥盒：密钥是永久物，越深网体积越大（最深 3×3），散在仓库里会吃掉整块空间。

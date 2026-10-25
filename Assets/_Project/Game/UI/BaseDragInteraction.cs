@@ -336,7 +336,7 @@ namespace BitRunner.Game
                 }
 
                 Cell cell;
-                if (!TryScreenToCell(source.Rect, source.Bag, source.View, screen, out cell))
+                if (!TryScreenToCell(source.Rect, source.Bag, screen, out cell))
                 {
                     continue;
                 }
@@ -988,7 +988,7 @@ namespace BitRunner.Game
                 }
 
                 Cell candidate;
-                if (TryScreenToCell(_sources[i].Rect, _sources[i].Bag, _sources[i].View, screen, out candidate))
+                if (TryScreenToCell(_sources[i].Rect, _sources[i].Bag, screen, out candidate))
                 {
                     cell = candidate;
                     return _sources[i];
@@ -1047,10 +1047,7 @@ namespace BitRunner.Game
             _floatImage.color = overSell
                 ? new Color(1f, 0.86f, 0.45f, 0.8f)
                 : new Color(1f, 1f, 1f, 0.72f);
-            int cellSize = _source != null && _source.View != null
-                ? _source.View.ViewCellSize
-                : BagView.CellSize;
-            _floatRect.sizeDelta = new Vector2(shape.Width * cellSize, shape.Height * cellSize);
+            _floatRect.sizeDelta = new Vector2(shape.Width * BagView.CellSize, shape.Height * BagView.CellSize);
 
             Vector2 local;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRect, screen, null, out local);
@@ -1086,12 +1083,7 @@ namespace BitRunner.Game
                    || RectTransformUtility.RectangleContainsScreenPoint(source.Viewport, screen, null);
         }
 
-        private static bool TryScreenToCell(
-            RectTransform rect,
-            BagInventory bag,
-            BagView view,
-            Vector2 screen,
-            out Cell cell)
+        private static bool TryScreenToCell(RectTransform rect, BagInventory bag, Vector2 screen, out Cell cell)
         {
             Vector2 local;
             if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screen, null, out local))
@@ -1100,12 +1092,11 @@ namespace BitRunner.Game
                 return false;
             }
 
-            int cellSize = view != null ? view.ViewCellSize : BagView.CellSize;
-            float halfWidth = bag.Grid.Width * cellSize * 0.5f;
-            float halfHeight = bag.Grid.Height * cellSize * 0.5f;
+            float halfWidth = bag.Grid.Width * BagView.CellSize * 0.5f;
+            float halfHeight = bag.Grid.Height * BagView.CellSize * 0.5f;
 
-            int x = Mathf.FloorToInt((local.x + halfWidth) / cellSize);
-            int y = Mathf.FloorToInt((halfHeight - local.y) / cellSize);
+            int x = Mathf.FloorToInt((local.x + halfWidth) / BagView.CellSize);
+            int y = Mathf.FloorToInt((halfHeight - local.y) / BagView.CellSize);
 
             cell = new Cell(x, y);
             return x >= 0 && x < bag.Grid.Width && y >= 0 && y < bag.Grid.Height;

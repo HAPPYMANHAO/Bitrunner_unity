@@ -5,14 +5,14 @@ namespace BitRunner.Core
     /// <summary>
     /// 仓储设备：扩容基地仓库。
     ///
-    /// 只加高不加宽——仓库面板已经有纵向滚动条，横向加宽要重做滚动与视口布局，
-    /// 收益远不如直接把行数堆上去。仓库越大，能同时养几套装备就越多，
-    /// 这件事直接决定「阵亡之后还有没有备用品」。
+    /// 仓库固定 10 列、与背包同尺寸的 16px 格子，横向明显比 6 列背包宽；
+    /// 扩容只加行数（6 → 8 → 10），面板用纵向滚动条承载。
+    /// 仓库越大，能同时养几套装备就越多，这件事直接决定「阵亡之后还有没有备用品」。
     /// </summary>
     public sealed class StorageRack
     {
         public const int MaxLevel = 3;
-        public const int Width = 6;
+        public const int Width = 10;
 
         public int Level { get; private set; }
 
@@ -26,11 +26,11 @@ namespace BitRunner.Core
             switch (level)
             {
                 case 1:
-                    return 10;
+                    return 6;
                 case 2:
-                    return 13;
+                    return 8;
                 default:
-                    return 16;
+                    return 10;
             }
         }
 

@@ -23,9 +23,6 @@ namespace BitRunner.Game
         private static readonly Color WindowColor = new Color32(16, 20, 26, 255);
         private static readonly Color WindowScreenColor = new Color32(23, 29, 36, 255);
 
-        /// <summary>仓库单独用更大的格子，视觉上比 6×5 背包更宽；容量规则不变。</summary>
-        private const int StashCellSize = 20;
-
         private enum BaseTab
         {
             Merchant,
@@ -476,8 +473,8 @@ namespace BitRunner.Game
                     {
                         _stashView.Rebind(_stash);
                         _stashRect.sizeDelta = new Vector2(
-                            _stash.Grid.Width * StashCellSize,
-                            _stash.Grid.Height * StashCellSize);
+                            _stash.Grid.Width * BagView.CellSize,
+                            _stash.Grid.Height * BagView.CellSize);
                         RebuildSources();
                         RefreshAll();
                         SetMessage("仓储设备升级到 Lv." + _rack.Level + "（" + _stash.Grid.Height + " 行）。");
@@ -1328,14 +1325,14 @@ namespace BitRunner.Game
 
         private void BuildBagPanels(Transform canvas)
         {
-            RectTransform bench = CreateCenteredPanel(canvas, "Workbench", new Vector2(-30f, -104f), new Vector2(380f, 132f), BenchColor);
+            RectTransform bench = CreateCenteredPanel(canvas, "Workbench", new Vector2(-36f, -104f), new Vector2(398f, 132f), BenchColor);
             bench.GetComponent<Image>().raycastTarget = false;
             AddBorder(bench, BenchRailColor);
-            RectTransform benchRail = CreateAnchoredPanel(bench, "TopRail", Vector2.zero, new Vector2(380f, 6f), BenchRailColor);
+            RectTransform benchRail = CreateAnchoredPanel(bench, "TopRail", Vector2.zero, new Vector2(398f, 6f), BenchRailColor);
             benchRail.GetComponent<Image>().raycastTarget = false;
-            CreateText(bench, "BenchLabel", "BASE / WORKBENCH", 7, new Color32(120, 104, 78, 255), new Vector2(268f, -10f), new Vector2(104f, 10f), TextAnchor.UpperLeft);
+            CreateText(bench, "BenchLabel", "WORKBENCH", 7, new Color32(120, 104, 78, 255), new Vector2(318f, -10f), new Vector2(76f, 10f), TextAnchor.UpperLeft);
 
-            RectTransform bagPanel = CreateCenteredPanel(canvas, "PackPanel", new Vector2(-160f, -108f), new Vector2(110f, 124f), PanelColor);
+            RectTransform bagPanel = CreateCenteredPanel(canvas, "PackPanel", new Vector2(-172f, -108f), new Vector2(110f, 124f), PanelColor);
             bagPanel.gameObject.AddComponent<RectMask2D>();
             CreateText(bagPanel, "Title", "背包", 10, TextColor, new Vector2(8f, -6f), new Vector2(124f, 14f), TextAnchor.UpperLeft);
 
@@ -1343,11 +1340,11 @@ namespace BitRunner.Game
             _bagView = _bagRect.gameObject.AddComponent<BagView>();
             _bagView.Initialize(_bag, _bagRect, _palette);
 
-            RectTransform stashPanel = CreateCenteredPanel(canvas, "StashPanel", new Vector2(-35f, -108f), new Vector2(150f, 124f), PanelColor);
+            RectTransform stashPanel = CreateCenteredPanel(canvas, "StashPanel", new Vector2(-19f, -108f), new Vector2(184f, 124f), PanelColor);
             stashPanel.gameObject.AddComponent<RectMask2D>();
-            CreateText(stashPanel, "Title", "仓库", 10, TextColor, new Vector2(8f, -6f), new Vector2(134f, 14f), TextAnchor.UpperLeft);
+            CreateText(stashPanel, "Title", "仓库", 10, TextColor, new Vector2(8f, -6f), new Vector2(168f, 14f), TextAnchor.UpperLeft);
 
-            _stashViewport = CreateCenteredPanel(stashPanel, "StashViewport", new Vector2(0f, -6f), new Vector2(6f * StashCellSize, 100f), Color.clear);
+            _stashViewport = CreateCenteredPanel(stashPanel, "StashViewport", new Vector2(-4f, -6f), new Vector2(StorageRack.Width * BagView.CellSize, 96f), Color.clear);
             var viewportImage = _stashViewport.GetComponent<Image>();
             if (viewportImage != null)
             {
@@ -1355,11 +1352,11 @@ namespace BitRunner.Game
             }
 
             _stashViewport.gameObject.AddComponent<RectMask2D>();
-            _stashRect = CreateBagRect(_stashViewport, Vector2.zero, new Vector2(6f * StashCellSize, _stash.Grid.Height * StashCellSize));
+            _stashRect = CreateBagRect(_stashViewport, Vector2.zero, new Vector2(StorageRack.Width * BagView.CellSize, _stash.Grid.Height * BagView.CellSize));
             _stashView = _stashRect.gameObject.AddComponent<BagView>();
-            _stashView.Initialize(_stash, _stashRect, _palette, null, StashCellSize);
+            _stashView.Initialize(_stash, _stashRect, _palette);
 
-            RectTransform scrollbarRect = CreateCenteredPanel(stashPanel, "StashScrollbar", new Vector2(65f, -6f), new Vector2(8f, 100f), new Color32(38, 44, 54, 255));
+            RectTransform scrollbarRect = CreateCenteredPanel(stashPanel, "StashScrollbar", new Vector2(80f, -6f), new Vector2(8f, 96f), new Color32(38, 44, 54, 255));
             var scrollbar = scrollbarRect.gameObject.AddComponent<Scrollbar>();
             RectTransform scrollbarHandle = CreateCenteredPanel(scrollbarRect, "Handle", Vector2.zero, new Vector2(8f, 40f), new Color32(92, 108, 132, 255));
             scrollbar.handleRect = scrollbarHandle;
@@ -1384,8 +1381,8 @@ namespace BitRunner.Game
             _stashScroll.Track = scrollbarRect;
             _stashScroll.Handle = scrollbarHandle;
 
-            RectTransform securePanel = CreateCenteredPanel(canvas, "SecurePanel", new Vector2(120f, -135f), new Vector2(80f, 70f), PanelColor);
-            _secureTitle = CreateText(securePanel, "Title", "保险箱 0/4", 9, TextColor, new Vector2(6f, -4f), new Vector2(68f, 12f), TextAnchor.UpperLeft);
+            RectTransform securePanel = CreateCenteredPanel(canvas, "SecurePanel", new Vector2(117f, -128f), new Vector2(76f, 84f), PanelColor);
+            _secureTitle = CreateText(securePanel, "Title", "保险箱 0/4", 9, TextColor, new Vector2(6f, -4f), new Vector2(64f, 12f), TextAnchor.UpperLeft);
             _secureRect = CreateBagRect(securePanel, new Vector2(0f, -8f), new Vector2(2f * BagView.CellSize, 2f * BagView.CellSize));
             _secureView = _secureRect.gameObject.AddComponent<BagView>();
             _secureView.Initialize(_secure, _secureRect, _palette);
@@ -1817,7 +1814,7 @@ namespace BitRunner.Game
             for (int i = tooltipSources.Count - 1; i >= 0; i--)
             {
                 Cell cell;
-                if (!TryScreenToCell(tooltipSources[i].Rect, tooltipSources[i].Bag, tooltipSources[i].View, screen, out cell))
+                if (!TryScreenToCell(tooltipSources[i].Rect, tooltipSources[i].Bag, screen, out cell))
                 {
                     continue;
                 }
@@ -1888,12 +1885,7 @@ namespace BitRunner.Game
             _tooltipPanel.SetActive(true);
         }
 
-        private static bool TryScreenToCell(
-            RectTransform rect,
-            BagInventory bag,
-            BagView view,
-            Vector2 screen,
-            out Cell cell)
+        private static bool TryScreenToCell(RectTransform rect, BagInventory bag, Vector2 screen, out Cell cell)
         {
             Vector2 local;
             if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screen, null, out local))
@@ -1902,12 +1894,11 @@ namespace BitRunner.Game
                 return false;
             }
 
-            int cellSize = view != null ? view.ViewCellSize : BagView.CellSize;
-            float halfWidth = bag.Grid.Width * cellSize * 0.5f;
-            float halfHeight = bag.Grid.Height * cellSize * 0.5f;
+            float halfWidth = bag.Grid.Width * BagView.CellSize * 0.5f;
+            float halfHeight = bag.Grid.Height * BagView.CellSize * 0.5f;
 
-            int x = Mathf.FloorToInt((local.x + halfWidth) / cellSize);
-            int y = Mathf.FloorToInt((halfHeight - local.y) / cellSize);
+            int x = Mathf.FloorToInt((local.x + halfWidth) / BagView.CellSize);
+            int y = Mathf.FloorToInt((halfHeight - local.y) / BagView.CellSize);
 
             cell = new Cell(x, y);
             return x >= 0 && x < bag.Grid.Width && y >= 0 && y < bag.Grid.Height;

@@ -154,10 +154,10 @@ namespace BitRunner.Tests
         {
             var rack = new StorageRack();
             Assert.AreEqual(1, rack.Level);
-            Assert.AreEqual(10, StorageRack.HeightForLevel(1));
-            Assert.AreEqual(13, StorageRack.HeightForLevel(2));
-            Assert.AreEqual(16, StorageRack.HeightForLevel(3));
-            Assert.AreEqual(StorageRack.Width, 6);
+            Assert.AreEqual(6, StorageRack.HeightForLevel(1));
+            Assert.AreEqual(8, StorageRack.HeightForLevel(2));
+            Assert.AreEqual(10, StorageRack.HeightForLevel(3));
+            Assert.AreEqual(StorageRack.Width, 10);
 
             var campaign = new CampaignState(new[] { 600 }, 2000);
             var stash = new BagInventory(StorageRack.Width, StorageRack.HeightForLevel(1));
@@ -173,7 +173,7 @@ namespace BitRunner.Tests
             Assert.IsTrue(rack.TryUpgrade(campaign, stash, out error), error);
 
             Assert.IsTrue(stash.ResizeTo(StorageRack.Width, StorageRack.HeightForLevel(rack.Level)));
-            Assert.AreEqual(13, stash.Grid.Height);
+            Assert.AreEqual(8, stash.Grid.Height);
             Assert.AreEqual(0, stash.CountOf("scrap"));
             Assert.AreEqual(0, stash.CountOf("wire"));
             Assert.AreEqual(1, stash.Count);

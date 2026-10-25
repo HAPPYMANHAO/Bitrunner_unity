@@ -20,12 +20,6 @@ namespace BitRunner.Game
     {
         public const int CellSize = 16;
 
-        /// <summary>
-        /// 这个视图实际使用的格子尺寸。默认 16；基地仓库用 20 让它在视觉上
-        /// 明显比 6×5 背包更宽，同时不改变仓库的真实容量。
-        /// </summary>
-        public int ViewCellSize { get; private set; } = CellSize;
-
         private readonly Dictionary<int, ItemView> _views = new Dictionary<int, ItemView>();
         private readonly Dictionary<string, Sprite> _spriteCache = new Dictionary<string, Sprite>();
         private readonly Dictionary<string, Sprite> _ghostCache = new Dictionary<string, Sprite>();
@@ -41,18 +35,12 @@ namespace BitRunner.Game
 
         public Func<PlacedItem, bool> ItemEnabledPredicate;
 
-        public void Initialize(
-            BagInventory inventory,
-            RectTransform bagRect,
-            Dictionary<string, Color> palette,
-            ItemCatalog catalog = null,
-            int cellSize = CellSize)
+        public void Initialize(BagInventory inventory, RectTransform bagRect, Dictionary<string, Color> palette, ItemCatalog catalog = null)
         {
             _inventory = inventory;
             _bagRect = bagRect;
             _palette = palette;
             _catalog = catalog;
-            ViewCellSize = cellSize > 0 ? cellSize : CellSize;
 
             BuildGrid();
             BuildLayers();
@@ -179,7 +167,7 @@ namespace BitRunner.Game
         public void ShowGhost(ItemShape shape, Cell origin, bool valid)
         {
             _ghostImage.sprite = GetGhostSprite(shape);
-            _ghostRect.sizeDelta = new Vector2(shape.Width * ViewCellSize, shape.Height * ViewCellSize);
+            _ghostRect.sizeDelta = new Vector2(shape.Width * CellSize, shape.Height * CellSize);
             _ghostRect.anchoredPosition = AnchoredFor(origin);
             _ghostImage.color = valid
                 ? new Color(0.35f, 1f, 0.45f, 0.55f)
@@ -197,9 +185,9 @@ namespace BitRunner.Game
 
         public Vector2 AnchoredFor(Cell origin)
         {
-            float width = _inventory.Grid.Width * ViewCellSize;
-            float height = _inventory.Grid.Height * ViewCellSize;
-            return new Vector2(-width * 0.5f + origin.X * ViewCellSize, height * 0.5f - origin.Y * ViewCellSize);
+            float width = _inventory.Grid.Width * CellSize;
+            float height = _inventory.Grid.Height * CellSize;
+            return new Vector2(-width * 0.5f + origin.X * CellSize, height * 0.5f - origin.Y * CellSize);
         }
 
         private void BuildGrid()
@@ -215,7 +203,7 @@ namespace BitRunner.Game
                     rect.anchorMin = new Vector2(0.5f, 0.5f);
                     rect.anchorMax = new Vector2(0.5f, 0.5f);
                     rect.pivot = new Vector2(0f, 1f);
-                    rect.sizeDelta = new Vector2(ViewCellSize, ViewCellSize);
+                    rect.sizeDelta = new Vector2(CellSize, CellSize);
                     rect.anchoredPosition = AnchoredFor(new Cell(x, y));
 
                     Image image = cellGo.GetComponent<Image>();
@@ -256,7 +244,7 @@ namespace BitRunner.Game
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0f, 1f);
-            rect.sizeDelta = new Vector2(ViewCellSize, ViewCellSize);
+            rect.sizeDelta = new Vector2(CellSize, CellSize);
             return rect;
         }
 
@@ -270,7 +258,7 @@ namespace BitRunner.Game
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0f, 1f);
             rect.anchoredPosition = AnchoredFor(item.Origin);
-            rect.sizeDelta = new Vector2(item.Shape.Width * ViewCellSize, item.Shape.Height * ViewCellSize);
+            rect.sizeDelta = new Vector2(item.Shape.Width * CellSize, item.Shape.Height * CellSize);
 
             Image image = go.GetComponent<Image>();
             image.sprite = GetItemSprite(item);
