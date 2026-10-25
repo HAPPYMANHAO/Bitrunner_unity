@@ -51,10 +51,11 @@ namespace BitRunner.Tests
         public void UsesShieldFromOwnBagAndSpendsEnergy()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
-                CombatTestFactory.ActiveSelf("barrier", 1, 4, 0, false, StatusType.None, 2, ItemTag.Tool, "#"));
+                CombatTestFactory.ActiveSelf("barrier", 1, 4, 0, false, StatusType.None, 2, ItemTag.Tool, "#"),
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog);
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "barrier");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "barrier", "prop");
             enemy.Brain = new EnemyBrain();
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);

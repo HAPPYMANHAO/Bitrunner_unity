@@ -18,6 +18,7 @@ namespace BitRunner.Core
         ItemBroken,
         ActorDied,
         ActorFled,
+        PlayerRetreating,
         CombatEnded
     }
 

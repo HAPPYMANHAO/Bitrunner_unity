@@ -52,10 +52,11 @@ namespace BitRunner.Tests
         public void BlockResetsAtStartOfOwnersTurn()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
-                CombatTestFactory.ActiveSelf("shield", 1, 4, 0, false, StatusType.None, 2, ItemTag.Tool, "#"));
+                CombatTestFactory.ActiveSelf("shield", 1, 4, 0, false, StatusType.None, 2, ItemTag.Tool, "#"),
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "shield");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "prop");
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
@@ -76,10 +77,10 @@ namespace BitRunner.Tests
         {
             ItemDefinition bladeDefinition = CombatTestFactory.Weapon("blade", 1, 1, 0, ItemTag.Blade, "##");
             bladeDefinition.MaxDurability = 2;
-            ItemCatalog catalog = CombatTestFactory.Catalog(bladeDefinition);
+            ItemCatalog catalog = CombatTestFactory.Catalog(bladeDefinition, CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "blade");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 0, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 0, 4, 3, catalog, "prop");
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
@@ -120,24 +121,45 @@ namespace BitRunner.Tests
         }
 
         [Test]
-        public void ArmedPlayerCannotRetreat()
+        public void ArmedPlayerCanRetreatButEnemyGetsOneRound()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 CombatTestFactory.Weapon("blade", 5, 1, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "blade");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "blade");
+            enemy.Brain = new EnemyBrain();
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+            engine.Start();
+            Assert.IsTrue(engine.CanPlayerAttack);
+
+            string error;
+            Assert.IsTrue(engine.TryRetreat(out error), error);
+            Assert.AreEqual(CombatPhase.PlayerRetreat, engine.Phase);
+            Assert.IsTrue(engine.IsFinished);
+            Assert.AreEqual(25, player.Hp, "撤离要花一轮，敌人应能打一次");
+            Assert.IsTrue(HasEvent(engine, CombatEventType.PlayerRetreating, null));
+        }
+
+        [Test]
+        public void RetreatingPlayerStillDiesIfTheEnemyKillsThem()
+        {
+            ItemCatalog catalog = CombatTestFactory.Catalog(
+                CombatTestFactory.Weapon("cannon", 10, 1, 0, ItemTag.Blade, "##"));
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog);
+            player.SetHp(5);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "cannon");
             enemy.Brain = new EnemyBrain();
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
 
-            Assert.IsTrue(engine.CanPlayerAttack);
-
             string error;
-            Assert.IsFalse(engine.TryRetreat(out error));
-            Assert.IsNotNull(error);
-            Assert.AreEqual(CombatPhase.PlayerTurn, engine.Phase);
+            Assert.IsTrue(engine.TryRetreat(out error), error);
+            Assert.AreEqual(CombatPhase.Defeat, engine.Phase);
+            Assert.IsFalse(player.IsAlive);
         }
 
         [Test]
@@ -162,7 +184,7 @@ namespace BitRunner.Tests
         }
 
         [Test]
-        public void BothSidesWithoutWeapons_EnemyFleesInsteadOfDeadlock()
+        public void WeaponlessEnemyFleesOnItsTurn()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 CombatTestFactory.Armor("vest", 1, 1, 1, 1, 1, "#"));
@@ -173,17 +195,10 @@ namespace BitRunner.Tests
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
-            Assert.IsFalse(engine.CanPlayerAttack);
             Assert.IsFalse(engine.CanActorAttack(enemy));
 
             engine.EndTurn();
-            Assert.IsFalse(enemy.HasFled, "僵持还不到 3 回合，敌人先不走");
-            Assert.AreEqual(CombatPhase.PlayerTurn, engine.Phase);
 
-            engine.EndTurn();
-            Assert.IsFalse(enemy.HasFled);
-
-            engine.EndTurn();
             Assert.IsTrue(enemy.HasFled);
             Assert.AreEqual(CombatPhase.EnemyFled, engine.Phase);
             Assert.IsTrue(HasEvent(engine, CombatEventType.ActorFled, null));
@@ -191,7 +206,7 @@ namespace BitRunner.Tests
         }
 
         [Test]
-        public void WeaponlessEnemyStaysWhilePlayerCanAttack()
+        public void WeaponlessEnemyFleesEvenWhenPlayerCanAttack()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 CombatTestFactory.Weapon("blade", 5, 1, 0, ItemTag.Blade, "##"),
@@ -208,8 +223,8 @@ namespace BitRunner.Tests
 
             engine.EndTurn();
 
-            Assert.IsFalse(enemy.HasFled);
-            Assert.AreEqual(CombatPhase.PlayerTurn, engine.Phase);
+            Assert.IsTrue(enemy.HasFled);
+            Assert.AreEqual(CombatPhase.EnemyFled, engine.Phase);
         }
 
         [Test]
@@ -266,10 +281,11 @@ namespace BitRunner.Tests
             vestDefinition.MaxDurability = 2;
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 CombatTestFactory.Weapon("blade", 1, 1, 0, ItemTag.Blade, "##"),
-                vestDefinition);
+                vestDefinition,
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "blade");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 0, 4, 3, catalog, "vest");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 0, 4, 3, catalog, "vest", "prop");
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
@@ -291,10 +307,11 @@ namespace BitRunner.Tests
         public void ActiveShieldSpendsEnergy()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
-                CombatTestFactory.ActiveSelf("barrier", 2, 4, 0, false, StatusType.None, 2, ItemTag.Tool, "#"));
+                CombatTestFactory.ActiveSelf("barrier", 2, 4, 0, false, StatusType.None, 2, ItemTag.Tool, "#"),
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "barrier");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 0, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 0, 4, 3, catalog, "prop");
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
@@ -341,10 +358,11 @@ namespace BitRunner.Tests
         public void OverloadReducesNextTurnAp()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
-                CombatTestFactory.ActiveEnemy("jammer", 1, 0, StatusType.Overload, 1, ItemTag.Tool | ItemTag.Chip, "#"));
+                CombatTestFactory.ActiveEnemy("jammer", 1, 0, StatusType.Overload, 1, ItemTag.Tool | ItemTag.Chip, "#"),
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog);
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "jammer");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "jammer", "prop");
             enemy.Brain = new EnemyBrain();
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
@@ -383,10 +401,11 @@ namespace BitRunner.Tests
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 CombatTestFactory.ActiveSelf("shield", 1, 4, 0, false, StatusType.None, 2, ItemTag.Tool, "#"),
-                CombatTestFactory.ActiveSelf("cache", 1, 0, 0, false, StatusType.Cache, 1, ItemTag.Tool, "#"));
+                CombatTestFactory.ActiveSelf("cache", 1, 0, 0, false, StatusType.Cache, 1, ItemTag.Tool, "#"),
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "shield", "cache");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "prop");
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
@@ -405,10 +424,11 @@ namespace BitRunner.Tests
         public void CooldownSkipsOneTurn()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
-                CombatTestFactory.Weapon("rod", 8, 2, 1, ItemTag.Blade, "#\n#\n#"));
+                CombatTestFactory.Weapon("rod", 8, 2, 1, ItemTag.Blade, "#\n#\n#"),
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "rod");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 40, 3, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 40, 3, 4, 3, catalog, "prop");
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
@@ -429,10 +449,11 @@ namespace BitRunner.Tests
         public void ItemCanOnlyBeUsedOncePerTurn()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
-                CombatTestFactory.Weapon("blade", 5, 1, 0, ItemTag.Blade, "##"));
+                CombatTestFactory.Weapon("blade", 5, 1, 0, ItemTag.Blade, "##"),
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "blade");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 30, 3, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 30, 3, 4, 3, catalog, "prop");
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
@@ -535,12 +556,13 @@ namespace BitRunner.Tests
                 Value = 1
             };
 
-            ItemCatalog catalog = CombatTestFactory.Catalog(pulse, ammo);
+            ItemDefinition prop = CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##");
+            ItemCatalog catalog = CombatTestFactory.Catalog(pulse, ammo, prop);
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 4, 3, catalog, "pulse");
             PlacedItem ammoItem;
             player.Bag.TryAddAt("ammo", ammo.Shape, new Cell(2, 0), 0, true, 2, out ammoItem, out _);
 
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "prop");
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
 

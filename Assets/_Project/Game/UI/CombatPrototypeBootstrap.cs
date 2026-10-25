@@ -160,7 +160,7 @@ namespace BitRunner.Game
                     string retreatError;
                     if (_engine.TryRetreat(out retreatError))
                     {
-                        SetMessage("你撤离了战斗。");
+                        SetMessage("开始撤离，下一回合自动脱离战斗。");
                         RefreshAll();
                     }
                     else
@@ -625,8 +625,7 @@ namespace BitRunner.Game
 
             bool show = !_lootPhase
                         && !_ended
-                        && _engine.Phase == CombatPhase.PlayerTurn
-                        && !_engine.CanPlayerAttack;
+                        && _engine.Phase == CombatPhase.PlayerTurn;
             _retreatRect.gameObject.SetActive(show);
         }
 
@@ -893,36 +892,51 @@ namespace BitRunner.Game
             }
         }
 
+        /// <summary>
+        /// 敌人意图只给模糊类别，避免预览动作和实际动作不一致（例如能量不足显示待机却用了道具）。
+        /// 类别：突击 / 治愈 / 防守 / 准备撤离。
+        /// </summary>
         private string IntentFor(CombatActor enemy)
         {
-            if (!_engine.CanActorAttack(enemy) && !_engine.CanPlayerAttack)
+            if (!_engine.CanActorAttack(enemy))
             {
-                return "下一步：想逃";
+                return "意图：准备撤离";
             }
 
-            EnemyBrain brain = enemy.Brain as EnemyBrain;
-            if (brain == null)
+            bool wounded = enemy.Hp * 2 <= enemy.MaxHp;
+            bool hasHeal = false;
+            bool hasGuard = false;
+            IReadOnlyList<PlacedItem> items = enemy.Bag.Items;
+            for (int i = 0; i < items.Count; i++)
             {
-                return "下一步：待机";
+                ItemDefinition definition = _catalog.Get(items[i].DefinitionId);
+                if (definition == null || !definition.IsActive)
+                {
+                    continue;
+                }
+
+                if (definition.Heal > 0)
+                {
+                    hasHeal = true;
+                }
+
+                if (definition.Shield > 0)
+                {
+                    hasGuard = true;
+                }
             }
 
-            CombatAction action = brain.PreviewNextAction(_engine, enemy);
-            if (action.Type == CombatActionType.EndTurn)
+            if (wounded && hasHeal)
             {
-                return "下一步：待机";
+                return "意图：治愈";
             }
 
-            PlacedItem item = _engine.GetItem(enemy, action.ItemInstanceId);
-            ItemDefinition definition = _engine.GetDefinition(item);
-            if (definition == null)
+            if (wounded && hasGuard)
             {
-                return "下一步：？";
+                return "意图：防守";
             }
 
-            int damage = _engine.GetDamageAfterShieldAndArmor(_player, _engine.GetDamage(enemy, item), definition.Type);
-            return damage > 0
-                ? "下一步：" + definition.DisplayName + "（" + damage + "）"
-                : "下一步：" + definition.DisplayName;
+            return "意图：突击";
         }
 
         private int MaxEnergy(CombatActor actor)

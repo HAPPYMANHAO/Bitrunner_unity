@@ -133,10 +133,11 @@ namespace BitRunner.Tests
                         new TraitRef(TraitCatalog.EnergyCell, 2),
                         new TraitRef(TraitCatalog.OverloadLoad, 1)
                     }
-                });
+                },
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
 
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "core");
-            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 0, 4, 3, catalog);
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 0, 4, 3, catalog, "prop");
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
 

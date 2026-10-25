@@ -267,11 +267,13 @@ namespace BitRunner.Tests
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 TraitArmor("loadout", "##", TraitCatalog.HeavyArmor, 1),
-                PlainArmor("plate", "##"));
+                PlainArmor("plate", "##"),
+                CombatTestFactory.Weapon("prop", 1, 99, 0, ItemTag.Blade, "##"));
             CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog);
             CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
             CombatTestFactory.PlaceAt(enemy, catalog, "loadout", 0, 0);
             CombatTestFactory.PlaceAt(enemy, catalog, "plate", 0, 1);
+            CombatTestFactory.PlaceAt(enemy, catalog, "prop", 2, 0);
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             engine.Start();
