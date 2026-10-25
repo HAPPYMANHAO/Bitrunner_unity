@@ -359,6 +359,39 @@ namespace BitRunner.Tests
             return items;
         }
 
+        [Test]
+        public void TryRotateRelocating_MovesToNearestFreeSpotWhenInPlaceFails()
+        {
+            var bag = new BagInventory(3, 2);
+            PlacedItem wide;
+            PlacedItem blocker;
+            string error;
+            Assert.IsTrue(bag.TryAddAt("wide", ItemShape.Parse("##"), new Cell(0, 0), 0, true, out wide, out error), error);
+            Assert.IsTrue(bag.TryAddAt("blocker", ItemShape.Parse("#"), new Cell(0, 1), 0, true, out blocker, out error), error);
+
+            Assert.IsFalse(bag.TryRotate(wide.InstanceId, out error), "原地旋转应被 blocker 挡住");
+            Assert.IsTrue(bag.TryRotateRelocating(wide.InstanceId, out error), error);
+
+            Assert.AreEqual(1, wide.Rotation);
+            Assert.AreEqual(new Cell(1, 0), wide.Origin);
+            Assert.AreEqual(wide.InstanceId, bag.Grid.GetOccupant(1, 0));
+            Assert.AreEqual(wide.InstanceId, bag.Grid.GetOccupant(1, 1));
+            Assert.AreEqual(blocker.InstanceId, bag.Grid.GetOccupant(0, 1));
+        }
+
+        [Test]
+        public void TryRotateRelocating_FailsWhenNoSpaceAnywhere()
+        {
+            var bag = new BagInventory(2, 1);
+            PlacedItem wide;
+            string error;
+            Assert.IsTrue(bag.TryAddAt("wide", ItemShape.Parse("##"), new Cell(0, 0), 0, true, out wide, out error), error);
+
+            Assert.IsFalse(bag.TryRotateRelocating(wide.InstanceId, out error));
+            Assert.AreEqual(0, wide.Rotation);
+            Assert.AreEqual(new Cell(0, 0), wide.Origin);
+        }
+
         private static void AssertConsistent(BagInventory inventory)
         {
             int occupied = 0;

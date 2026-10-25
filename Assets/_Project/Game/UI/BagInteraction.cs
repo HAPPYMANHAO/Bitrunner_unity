@@ -26,6 +26,9 @@ namespace BitRunner.Game
         private bool _dragging;
         private bool _overDiscard;
 
+        /// <summary>战斗内锁定背包布局：保留点击使用，禁止拖动和旋转。</summary>
+        public bool LockPosition;
+
         public Action<int> ItemClicked;
         public event Action<string> ItemDiscarded;
 
@@ -57,7 +60,15 @@ namespace BitRunner.Game
             {
                 if ((screen - _pressScreen).sqrMagnitude > 36f)
                 {
-                    StartDrag();
+                    if (LockPosition)
+                    {
+                        _pressed = false;
+                        _pressedId = 0;
+                    }
+                    else
+                    {
+                        StartDrag();
+                    }
                 }
             }
 
@@ -88,7 +99,7 @@ namespace BitRunner.Game
                 _pressedId = 0;
             }
 
-            if (!_dragging && !_pressed && mouse.rightButton.wasPressedThisFrame)
+            if (!_dragging && !_pressed && mouse.rightButton.wasPressedThisFrame && !LockPosition)
             {
                 RotateUnderCursor(screen);
             }
@@ -222,7 +233,7 @@ namespace BitRunner.Game
             }
 
             string error;
-            if (_inventory.TryRotate(instanceId, out error))
+            if (_inventory.TryRotateRelocating(instanceId, out error))
             {
                 _view.Refresh();
             }

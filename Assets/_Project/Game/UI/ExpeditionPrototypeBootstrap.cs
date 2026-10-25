@@ -44,7 +44,6 @@ namespace BitRunner.Game
         private Text _selectedRisk;
         private Text _confirmText;
         private RectTransform _confirmRect;
-        private RectTransform _bagButtonRect;
 
         private Image _hpFill;
         private Image _bagFill;
@@ -233,10 +232,6 @@ namespace BitRunner.Game
                 return;
             }
 
-            if (RectTransformUtility.RectangleContainsScreenPoint(_bagButtonRect, screen, null))
-            {
-                OpenBag();
-            }
         }
 
         private void ConfirmSelected()
@@ -733,9 +728,6 @@ namespace BitRunner.Game
             RectTransform panel = CreateCenteredPanel(canvas, "Actions", new Vector2(-90f, 25f), new Vector2(240f, 200f), PanelColor);
             CreateText(panel, "Title", "可选行动", 10, TextColor, new Vector2(10f, -7f), new Vector2(150f, 14f), TextAnchor.UpperLeft);
             CreateText(panel, "Hint", "拖动 / 双击 / Shift+左键", 8, MutedColor, new Vector2(10f, -22f), new Vector2(150f, 10f), TextAnchor.UpperLeft);
-
-            _bagButtonRect = CreateCenteredPanel(panel, "BagButton", new Vector2(84f, 83f), new Vector2(56f, 18f), new Color32(42, 48, 57, 255));
-            CreateCenteredText(_bagButtonRect, "Label", "背包 B", 8, TextColor, Vector2.zero, new Vector2(54f, 16f));
 
             _actionBag = new BagInventory(6, 4);
             _actionBagRect = CreateBagRect(panel, new Vector2(0f, -10f), new Vector2(6f * BagView.CellSize, 4f * BagView.CellSize));

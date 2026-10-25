@@ -290,7 +290,7 @@ namespace BitRunner.Game
             }
 
             string error;
-            if (!source.Bag.TryRotate(instanceId, out error))
+            if (!source.Bag.TryRotateRelocating(instanceId, out error))
             {
                 if (Message != null)
                 {

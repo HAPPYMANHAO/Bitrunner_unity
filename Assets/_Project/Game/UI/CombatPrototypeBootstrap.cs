@@ -342,6 +342,7 @@ namespace BitRunner.Game
             interaction.Initialize(_player.Bag, _playerView, _playerBagRect, null, _discardRect);
             interaction.ItemClicked = OnPlayerItemClicked;
             interaction.ItemDiscarded += OnPlayerItemDiscarded;
+            interaction.LockPosition = true;
             _playerInteraction = interaction;
 
             BuildStatusPanel(canvas);
@@ -761,6 +762,10 @@ namespace BitRunner.Game
             _lootPhase = true;
             _takenValue = 0;
             _tooltipPanel.SetActive(false);
+            if (_playerInteraction != null)
+            {
+                _playerInteraction.LockPosition = false;
+            }
             if (_retreatRect != null)
             {
                 _retreatRect.gameObject.SetActive(false);

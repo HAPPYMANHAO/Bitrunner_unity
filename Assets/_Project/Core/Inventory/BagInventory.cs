@@ -608,6 +608,85 @@ namespace BitRunner.Core
             return true;
         }
 
+        /// <summary>
+        /// 右键旋转：优先原地旋转；原地放不下时，在包内找离原位置最近的空位放下旋转后的形状。
+        /// 战利品包和战斗背包经常是满的，原地旋转几乎必然失败。
+        /// </summary>
+        public bool TryRotateRelocating(int instanceId, out string error)
+        {
+            PlacedItem item;
+            if (!_items.TryGetValue(instanceId, out item))
+            {
+                error = "Unknown item " + instanceId + ".";
+                return false;
+            }
+
+            if (!CheckModifiable(instanceId, out error))
+            {
+                return false;
+            }
+
+            if (!item.Rotatable)
+            {
+                error = "Item cannot be rotated.";
+                return false;
+            }
+
+            int rotation = (item.Rotation + 1) % 4;
+            ItemShape shape = item.BaseShape.Rotate(rotation);
+            if (Grid.CanPlace(shape, item.Origin, instanceId))
+            {
+                Grid.Clear(instanceId);
+                Grid.Place(instanceId, shape, item.Origin);
+                item.Rotation = rotation;
+                error = null;
+                return true;
+            }
+
+            Cell origin = FindNearestOrigin(shape, item.Origin, instanceId);
+            if (origin.X < 0)
+            {
+                error = "空间不足，无法旋转。";
+                return false;
+            }
+
+            Grid.Clear(instanceId);
+            Grid.Place(instanceId, shape, origin);
+            item.Rotation = rotation;
+            item.Origin = origin;
+            error = null;
+            return true;
+        }
+
+        private Cell FindNearestOrigin(ItemShape shape, Cell around, int ignoreId)
+        {
+            Cell best = new Cell(-1, -1);
+            int bestDistance = int.MaxValue;
+
+            for (int y = 0; y < Grid.Height; y++)
+            {
+                for (int x = 0; x < Grid.Width; x++)
+                {
+                    var origin = new Cell(x, y);
+                    if (!Grid.CanPlace(shape, origin, ignoreId))
+                    {
+                        continue;
+                    }
+
+                    int dx = x - around.X;
+                    int dy = y - around.Y;
+                    int distance = dx * dx + dy * dy;
+                    if (distance < bestDistance)
+                    {
+                        best = origin;
+                        bestDistance = distance;
+                    }
+                }
+            }
+
+            return best;
+        }
+
         public bool Remove(int instanceId)
         {
             if (!_items.ContainsKey(instanceId))
