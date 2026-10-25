@@ -151,6 +151,12 @@ namespace BitRunner.Game
             }
         }
 
+        /// <summary>按实例 ID 取物品视图；用于战斗动画定位被使用/消耗的道具。</summary>
+        public bool TryGetItemView(int instanceId, out ItemView view)
+        {
+            return _views.TryGetValue(instanceId, out view);
+        }
+
         public void SetItemAlpha(int instanceId, float alpha)
         {
             ItemView view;

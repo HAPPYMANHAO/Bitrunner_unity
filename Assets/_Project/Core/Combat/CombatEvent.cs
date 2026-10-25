@@ -28,6 +28,7 @@ namespace BitRunner.Core
         public string ActorId;
         public string TargetId;
         public string ItemId;
+        public int InstanceId;
         public int Amount;
         public int Shielded;
         public string Message;

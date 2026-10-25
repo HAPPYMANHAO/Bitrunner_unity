@@ -314,7 +314,7 @@ namespace BitRunner.Core
             actor.Energy -= cost;
             actor.MarkUsed(instanceId);
 
-            Emit(CombatEventType.ItemUsed, actor.Id, actualTarget.Id, definition.Id, cost, 0, actor.DisplayName + "使用 " + definition.DisplayName);
+            Emit(CombatEventType.ItemUsed, actor.Id, actualTarget.Id, definition.Id, cost, 0, actor.DisplayName + "使用 " + definition.DisplayName, instanceId);
 
             if (definition.UsesAmmo)
             {
@@ -1130,7 +1130,15 @@ namespace BitRunner.Core
             return SynergyResolver.Get(bonuses, instanceId);
         }
 
-        private void Emit(CombatEventType type, string actorId, string targetId, string itemId, int amount, int blocked, string message)
+        private void Emit(
+            CombatEventType type,
+            string actorId,
+            string targetId,
+            string itemId,
+            int amount,
+            int blocked,
+            string message,
+            int instanceId = 0)
         {
             _events.Add(new CombatEvent
             {
@@ -1138,6 +1146,7 @@ namespace BitRunner.Core
                 ActorId = actorId,
                 TargetId = targetId,
                 ItemId = itemId,
+                InstanceId = instanceId,
                 Amount = amount,
                 Shielded = blocked,
                 Message = message

@@ -248,6 +248,51 @@ namespace BitRunner.Tests
         }
 
         [Test]
+        public void ItemUsedEventCarriesInstanceId()
+        {
+            ItemCatalog catalog = CombatTestFactory.Catalog(
+                CombatTestFactory.Weapon("blade", 1, 1, 0, ItemTag.Blade, "##"));
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "blade");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "blade");
+            enemy.Brain = new EnemyBrain();
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+            engine.Start();
+
+            PlacedItem playerBlade = CombatTestFactory.FirstItem(player);
+            PlacedItem enemyBlade = CombatTestFactory.FirstItem(enemy);
+            string error;
+            Assert.IsTrue(engine.TryUseItem(player, playerBlade.InstanceId, enemy, out error), error);
+
+            engine.EndTurn();
+
+            bool sawPlayer = false;
+            bool sawEnemy = false;
+            for (int i = 0; i < engine.Events.Count; i++)
+            {
+                CombatEvent ev = engine.Events[i];
+                if (ev.Type != CombatEventType.ItemUsed)
+                {
+                    continue;
+                }
+
+                if (ev.ActorId == "player" && ev.InstanceId == playerBlade.InstanceId)
+                {
+                    sawPlayer = true;
+                }
+
+                if (ev.ActorId == "enemy" && ev.InstanceId == enemyBlade.InstanceId)
+                {
+                    sawEnemy = true;
+                }
+            }
+
+            Assert.IsTrue(sawPlayer, "玩家 ItemUsed 事件应带实例 ID");
+            Assert.IsTrue(sawEnemy, "敌人 ItemUsed 事件应带实例 ID");
+        }
+
+        [Test]
         public void DurabilitySurvivesAcrossCombats()
         {
             ItemDefinition bladeDefinition = CombatTestFactory.Weapon("blade", 1, 1, 0, ItemTag.Blade, "##");

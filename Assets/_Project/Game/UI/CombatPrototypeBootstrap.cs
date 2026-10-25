@@ -86,11 +86,48 @@ namespace BitRunner.Game
         private int _selectedEnemy;
         private bool _ended;
 
+        private sealed class UseAnimationStep
+        {
+            public BagBinding Source;
+            public int InstanceId;
+            public CombatActor Target;
+            public string ActorId;
+            public string DefinitionId;
+        }
+
+        private const string AnimationSpeedPrefKey = "bitrunner.combat.animationSpeed";
+        private const float AnimPulseSeconds = 0.18f;
+        private const float AnimSparkStart = 0.06f;
+        private const float AnimSparkSeconds = 0.13f;
+        private const float AnimFlashStart = 0.16f;
+        private const float AnimFlashSeconds = 0.16f;
+        private const float AnimStepSeconds = 0.34f;
+        private static readonly Color FlashColor = new Color32(255, 236, 184, 255);
+
+        private readonly List<UseAnimationStep> _animSteps = new List<UseAnimationStep>();
+        private bool _animating;
+        private int _animStepIndex;
+        private float _animTime;
+        private RectTransform _animItemRect;
+        private RectTransform _animTargetRect;
+        private Image _animTargetImage;
+        private Color _animTargetBaseColor;
+        private Image _fxPulse;
+        private Image _fxSpark;
+        private RectTransform _statusPanelRect;
+        private Image _statusPanelImage;
+        private RectTransform _speedRect;
+        private Text _speedText;
+        private int _animationSpeed = 1;
+        private BagInteraction _playerInteraction;
+
         private void Start()
         {
             GameSession.EnsureInitialized();
             _catalog = GameSession.Catalog;
             _palette = BuildPalette(_catalog);
+            int savedSpeed = PlayerPrefs.GetInt(AnimationSpeedPrefKey, 1);
+            _animationSpeed = savedSpeed == 2 ? 2 : (savedSpeed == 4 ? 4 : 1);
             ItemDurability.EnsureBag(GameSession.PlayerBag, _catalog);
             _player = GameSession.CreatePlayerActor();
             if (GameSession.ExpeditionHp > 0)
@@ -119,6 +156,17 @@ namespace BitRunner.Game
 
             Vector2 screen = mouse.position.ReadValue();
 
+            if (_animating)
+            {
+                if (mouse.leftButton.wasPressedThisFrame && SpeedButtonContains(screen))
+                {
+                    CycleAnimationSpeed();
+                }
+
+                UpdateAnimation();
+                return;
+            }
+
             if (_ended)
             {
                 if (mouse.leftButton.wasPressedThisFrame)
@@ -126,6 +174,12 @@ namespace BitRunner.Game
                     SceneManager.LoadScene("BasePrototype");
                 }
 
+                return;
+            }
+
+            if (mouse.leftButton.wasPressedThisFrame && SpeedButtonContains(screen))
+            {
+                CycleAnimationSpeed();
                 return;
             }
 
@@ -157,11 +211,15 @@ namespace BitRunner.Game
                     && _retreatRect.gameObject.activeSelf
                     && RectTransformUtility.RectangleContainsScreenPoint(_retreatRect, screen, null))
                 {
+                    int retreatEventStart = _engine.Events.Count;
                     string retreatError;
                     if (_engine.TryRetreat(out retreatError))
                     {
                         SetMessage("开始撤离，下一回合自动脱离战斗。");
-                        RefreshAll();
+                        if (!StartAnimations(CollectUseSteps(retreatEventStart)))
+                        {
+                            RefreshAll();
+                        }
                     }
                     else
                     {
@@ -175,9 +233,13 @@ namespace BitRunner.Game
                     && _engine.Phase == CombatPhase.PlayerTurn
                     && RectTransformUtility.RectangleContainsScreenPoint(_endTurnRect, screen, null))
                 {
+                    int turnEventStart = _engine.Events.Count;
                     _engine.EndTurn();
                     SetMessage("敌方回合结束");
-                    RefreshAll();
+                    if (!StartAnimations(CollectUseSteps(turnEventStart)))
+                    {
+                        RefreshAll();
+                    }
                     return;
                 }
 
@@ -280,12 +342,15 @@ namespace BitRunner.Game
             interaction.Initialize(_player.Bag, _playerView, _playerBagRect, null, _discardRect);
             interaction.ItemClicked = OnPlayerItemClicked;
             interaction.ItemDiscarded += OnPlayerItemDiscarded;
+            _playerInteraction = interaction;
 
             BuildStatusPanel(canvas);
             BuildLootButton(canvas);
             BuildRetreatButton(canvas);
+            BuildSpeedButton(canvas);
             BuildLogPanel(canvas);
             BuildTooltip(canvas);
+            BuildFxLayer(canvas);
             BuildEndOverlay(canvas);
             BuildLootInteraction();
         }
@@ -324,6 +389,8 @@ namespace BitRunner.Game
         private void BuildStatusPanel(Transform canvas)
         {
             RectTransform panel = CreateCenteredPanel(canvas, "StatusPanel", new Vector2(-20f, -88f), new Vector2(150f, 176f), PanelColor);
+            _statusPanelRect = panel;
+            _statusPanelImage = panel.GetComponent<Image>();
 
             _playerTitle = CreateText(panel, "Title", "跑者", 12, TextColor, new Vector2(8f, -8f), new Vector2(134f, 16f), TextAnchor.UpperLeft);
 
@@ -469,12 +536,16 @@ namespace BitRunner.Game
             }
 
             CombatActor target = definition.Target == ItemTarget.Enemy ? CurrentTarget() : _player;
+            int eventStart = _engine.Events.Count;
             string error;
             if (_engine.TryUseItem(_player, instanceId, target, out error))
             {
                 SetMessage("已使用 " + definition.DisplayName + "。");
                 EnsureSelection();
-                RefreshAll();
+                if (!StartAnimations(CollectUseSteps(eventStart)))
+                {
+                    RefreshAll();
+                }
             }
             else
             {
@@ -775,6 +846,345 @@ namespace BitRunner.Game
             _endOverlay.SetActive(true);
             _endTitle.text = "已撤离";
             _endSubtitle.text = "带出战利品：" + _takenValue + "\n点击返回基地。";
+        }
+
+        // ---------- 道具使用动画 ----------
+
+        private void BuildSpeedButton(Transform canvas)
+        {
+            _speedRect = CreateCenteredPanel(
+                canvas,
+                "AnimationSpeed",
+                new Vector2(280f, 166f),
+                new Vector2(66f, 18f),
+                new Color32(40, 46, 56, 255));
+            _speedText = CreateCenteredText(
+                _speedRect,
+                "Label",
+                "动画 " + _animationSpeed + "×",
+                9,
+                MutedColor,
+                Vector2.zero,
+                new Vector2(62f, 16f));
+        }
+
+        private void BuildFxLayer(Transform canvas)
+        {
+            _fxPulse = CreateFxImage(canvas, "UsePulse");
+            _fxSpark = CreateFxImage(canvas, "UseSpark");
+            _fxSpark.rectTransform.sizeDelta = new Vector2(9f, 9f);
+        }
+
+        private static Image CreateFxImage(Transform parent, string name)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(parent, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+
+            Image image = go.GetComponent<Image>();
+            image.sprite = SpriteFactory.White;
+            image.raycastTarget = false;
+            go.SetActive(false);
+            return image;
+        }
+
+        private bool SpeedButtonContains(Vector2 screen)
+        {
+            return _speedRect != null
+                   && _speedRect.gameObject.activeSelf
+                   && RectTransformUtility.RectangleContainsScreenPoint(_speedRect, screen, null);
+        }
+
+        private void CycleAnimationSpeed()
+        {
+            _animationSpeed = _animationSpeed == 1 ? 2 : (_animationSpeed == 2 ? 4 : 1);
+            if (_speedText != null)
+            {
+                _speedText.text = "动画 " + _animationSpeed + "×";
+            }
+
+            PlayerPrefs.SetInt(AnimationSpeedPrefKey, _animationSpeed);
+            PlayerPrefs.Save();
+            SetMessage("战斗动画速度：×" + _animationSpeed);
+        }
+
+        private List<UseAnimationStep> CollectUseSteps(int eventStart)
+        {
+            var result = new List<UseAnimationStep>();
+            var groups = new Dictionary<string, List<UseAnimationStep>>();
+            var actorOrder = new List<string>();
+
+            for (int i = eventStart; i < _engine.Events.Count; i++)
+            {
+                CombatEvent ev = _engine.Events[i];
+                if (ev.Type != CombatEventType.ItemUsed)
+                {
+                    continue;
+                }
+
+                BagBinding source = FindBindingFor(ev.ActorId, ev.InstanceId);
+                if (source == null)
+                {
+                    continue;
+                }
+
+                var step = new UseAnimationStep
+                {
+                    Source = source,
+                    InstanceId = ev.InstanceId,
+                    Target = _engine.FindActor(ev.TargetId),
+                    ActorId = ev.ActorId,
+                    DefinitionId = ev.ItemId
+                };
+
+                List<UseAnimationStep> group;
+                if (!groups.TryGetValue(ev.ActorId, out group))
+                {
+                    group = new List<UseAnimationStep>();
+                    groups[ev.ActorId] = group;
+                    actorOrder.Add(ev.ActorId);
+                }
+
+                group.Add(step);
+            }
+
+            for (int i = 0; i < actorOrder.Count; i++)
+            {
+                List<UseAnimationStep> group = groups[actorOrder[i]];
+                group.Sort(CompareByReadingOrder);
+                result.AddRange(group);
+            }
+
+            return result;
+        }
+
+        private BagBinding FindBindingFor(string actorId, int instanceId)
+        {
+            for (int i = 0; i < _bags.Count; i++)
+            {
+                BagBinding binding = _bags[i];
+                if (binding.Owner == null || binding.Owner.Id != actorId || binding.View == null)
+                {
+                    continue;
+                }
+
+                ItemView view;
+                if (binding.View.TryGetItemView(instanceId, out view))
+                {
+                    return binding;
+                }
+            }
+
+            return null;
+        }
+
+        private int CompareByReadingOrder(UseAnimationStep a, UseAnimationStep b)
+        {
+            RectTransform rectA = ItemRectOf(a);
+            RectTransform rectB = ItemRectOf(b);
+            if (rectA == null)
+            {
+                return rectB == null ? a.InstanceId.CompareTo(b.InstanceId) : 1;
+            }
+
+            if (rectB == null)
+            {
+                return -1;
+            }
+
+            Vector2 posA = rectA.anchoredPosition;
+            Vector2 posB = rectB.anchoredPosition;
+            int row = posB.y.CompareTo(posA.y);
+            return row != 0 ? row : posA.x.CompareTo(posB.x);
+        }
+
+        private RectTransform ItemRectOf(UseAnimationStep step)
+        {
+            if (step == null || step.Source == null || step.Source.View == null)
+            {
+                return null;
+            }
+
+            ItemView view;
+            return step.Source.View.TryGetItemView(step.InstanceId, out view)
+                ? view.transform as RectTransform
+                : null;
+        }
+
+        private RectTransform PanelRectFor(CombatActor actor)
+        {
+            if (actor == null)
+            {
+                return null;
+            }
+
+            if (actor.IsPlayer)
+            {
+                return _statusPanelRect;
+            }
+
+            int index = _enemies.IndexOf(actor);
+            return index >= 0 && index < _enemyPanels.Count ? _enemyPanels[index] : null;
+        }
+
+        private Image PanelImageFor(CombatActor actor)
+        {
+            if (actor == null)
+            {
+                return null;
+            }
+
+            if (actor.IsPlayer)
+            {
+                return _statusPanelImage;
+            }
+
+            int index = _enemies.IndexOf(actor);
+            return index >= 0 && index < _enemyPanelImages.Count ? _enemyPanelImages[index] : null;
+        }
+
+        private bool StartAnimations(List<UseAnimationStep> steps)
+        {
+            if (steps == null || steps.Count == 0)
+            {
+                return false;
+            }
+
+            _animSteps.Clear();
+            _animSteps.AddRange(steps);
+            _animStepIndex = 0;
+            _animTime = 0f;
+            _animating = true;
+            if (_playerInteraction != null)
+            {
+                _playerInteraction.enabled = false;
+            }
+
+            _tooltipPanel.SetActive(false);
+            ClearSynergyHighlights();
+            BeginAnimationStep(0);
+            return true;
+        }
+
+        private void BeginAnimationStep(int index)
+        {
+            UseAnimationStep step = _animSteps[index];
+            _animItemRect = null;
+            _animTargetRect = PanelRectFor(step.Target);
+            _animTargetImage = PanelImageFor(step.Target);
+            _animTargetBaseColor = _animTargetImage != null ? _animTargetImage.color : Color.white;
+
+            ItemView view;
+            if (step.Source != null && step.Source.View != null
+                && step.Source.View.TryGetItemView(step.InstanceId, out view))
+            {
+                _animItemRect = view.transform as RectTransform;
+                if (_animItemRect != null)
+                {
+                    _fxPulse.sprite = view.Image.sprite != null ? view.Image.sprite : SpriteFactory.White;
+                    _fxPulse.rectTransform.sizeDelta = _animItemRect.rect.size + new Vector2(3f, 3f);
+                }
+            }
+
+            _fxPulse.gameObject.SetActive(false);
+            _fxSpark.gameObject.SetActive(false);
+        }
+
+        private void UpdateAnimation()
+        {
+            _animTime += Time.unscaledDeltaTime * _animationSpeed;
+            while (_animTime >= AnimStepSeconds)
+            {
+                FinishAnimationStep();
+                _animStepIndex++;
+                if (_animStepIndex >= _animSteps.Count)
+                {
+                    EndAnimation();
+                    return;
+                }
+
+                _animTime -= AnimStepSeconds;
+                BeginAnimationStep(_animStepIndex);
+            }
+
+            UpdateAnimationVisuals();
+        }
+
+        private void UpdateAnimationVisuals()
+        {
+            float t = _animTime;
+            if (_animItemRect != null && t <= AnimPulseSeconds)
+            {
+                float p = Mathf.Clamp01(t / AnimPulseSeconds);
+                _fxPulse.gameObject.SetActive(true);
+                _fxPulse.rectTransform.anchoredPosition = CanvasPoint(_animItemRect);
+                float scale = 1f + 0.24f * Mathf.Sin(Mathf.PI * p);
+                _fxPulse.rectTransform.localScale = new Vector3(scale, scale, 1f);
+                Color color = _fxPulse.color;
+                color.a = 0.6f * (1f - p);
+                _fxPulse.color = color;
+            }
+            else
+            {
+                _fxPulse.gameObject.SetActive(false);
+            }
+
+            if (_animItemRect != null && _animTargetRect != null
+                && t >= AnimSparkStart && t <= AnimSparkStart + AnimSparkSeconds)
+            {
+                float p = Mathf.Clamp01((t - AnimSparkStart) / AnimSparkSeconds);
+                _fxSpark.gameObject.SetActive(true);
+                Vector2 from = CanvasPoint(_animItemRect);
+                Vector2 to = CanvasPoint(_animTargetRect);
+                _fxSpark.rectTransform.anchoredPosition = Vector2.Lerp(from, to, p);
+            }
+            else
+            {
+                _fxSpark.gameObject.SetActive(false);
+            }
+
+            if (_animTargetImage != null && t >= AnimFlashStart && t <= AnimFlashStart + AnimFlashSeconds)
+            {
+                float p = Mathf.Clamp01((t - AnimFlashStart) / AnimFlashSeconds);
+                _animTargetImage.color = Color.Lerp(_animTargetBaseColor, FlashColor, Mathf.Sin(Mathf.PI * p) * 0.9f);
+            }
+            else if (_animTargetImage != null)
+            {
+                _animTargetImage.color = _animTargetBaseColor;
+            }
+        }
+
+        private Vector2 CanvasPoint(RectTransform rect)
+        {
+            Vector3 world = rect.TransformPoint(rect.rect.center);
+            return _canvasRect.InverseTransformPoint(world);
+        }
+
+        private void FinishAnimationStep()
+        {
+            _fxPulse.gameObject.SetActive(false);
+            _fxSpark.gameObject.SetActive(false);
+            if (_animTargetImage != null)
+            {
+                _animTargetImage.color = _animTargetBaseColor;
+            }
+        }
+
+        private void EndAnimation()
+        {
+            _animating = false;
+            _animSteps.Clear();
+            FinishAnimationStep();
+            if (_playerInteraction != null)
+            {
+                _playerInteraction.enabled = true;
+            }
+
+            RefreshAll();
         }
 
         private void UpdateTooltip(Vector2 screen)
