@@ -115,6 +115,9 @@ namespace BitRunner.Core
         /// 只能插进中央处理器的芯片。刻意和 <see cref="Chip"/> 分开：
         /// 后者是敌人配装里「科技件」槽位的筛选标签，混用会让敌人去装备只对玩家生效的芯片。
         /// </summary>
-        CpuChip = 1 << 16
+        CpuChip = 1 << 16,
+
+        /// <summary>探索辅助标志（1×1，占背包、消耗耐久）。</summary>
+        Assist = 1 << 17
     }
 }

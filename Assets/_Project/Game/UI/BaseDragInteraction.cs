@@ -69,6 +69,9 @@ namespace BitRunner.Game
         public Func<BaseBagSource, PlacedItem, BaseBagSource> QuickMoveTarget;
         public Func<BaseBagSource, int, bool> TryActivateItem;
 
+        /// <summary>优先于普通放置的特殊落点（如把辅助标志拖进已选行动）。返回 true 表示已处理。</summary>
+        public Func<BaseBagSource, PlacedItem, BaseBagSource, bool> TrySpecialDrop;
+
         /// <summary>
         /// 返回非 null 表示这件物品**不允许被拿走**，返回值直接当提示文案。
         /// 通讯中枢里被任务占用的上行链路走这里拦下——它必须一直待在格子里。
@@ -742,7 +745,11 @@ namespace BitRunner.Game
             string message = null;
             bool sealedContainer = ContainerOps.HasContents(_item);
 
-            if (_overDiscard)
+            if (_targetBag != null && TrySpecialDrop != null && TrySpecialDrop(_source, _item, _targetBag))
+            {
+                // 特殊落点自行处理，不移动物品。
+            }
+            else if (_overDiscard)
             {
                 ItemDefinition definition = _catalog.Get(_item.DefinitionId);
                 if (sealedContainer)

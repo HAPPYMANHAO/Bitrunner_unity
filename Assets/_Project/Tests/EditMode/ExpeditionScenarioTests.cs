@@ -160,6 +160,15 @@ namespace BitRunner.Tests
         }
 
         [Test]
+        public void BasicDiveKeyHasFiveStages()
+        {
+            DivePlan plan;
+            string error;
+            Assert.IsTrue(DiveKeyLibrary.TryResolve("dive_basic", new string[0], out plan, out error), error);
+            Assert.AreEqual(5, plan.StageCount);
+        }
+
+        [Test]
         public void StageCountComesFromPlan()
         {
             DivePlan plan = MakePlan();

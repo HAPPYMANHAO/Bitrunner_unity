@@ -258,6 +258,28 @@ namespace BitRunner.Core
                 builder.Append('\n').Append("说明：").Append(definition.Description);
             }
 
+            if (definition.Assist != null)
+            {
+                builder.Append('\n').Append("探索效果：");
+                if (definition.Assist.LootPercent != 0)
+                {
+                    builder.Append('\n').Append("· 战利品 ").Append(Signed(definition.Assist.LootPercent)).Append("pp");
+                }
+                if (definition.Assist.EnemyPercent != 0)
+                {
+                    builder.Append('\n').Append("· 战斗 ").Append(Signed(definition.Assist.EnemyPercent)).Append("pp");
+                }
+                if (definition.Assist.DamagePercent != 0)
+                {
+                    builder.Append('\n').Append("· 受伤 ").Append(Signed(definition.Assist.DamagePercent)).Append("pp");
+                }
+                if (definition.Assist.AlertDelta != 0)
+                {
+                    builder.Append('\n').Append("· 警戒 ").Append(Signed(definition.Assist.AlertDelta)).Append("（提高遭遇敌人概率）");
+                }
+                builder.Append('\n').Append("（每次确认行动消耗 1 点耐久）");
+            }
+
             if (definition.ContainerSpec != null)
             {
                 builder.Append('\n')
@@ -320,6 +342,11 @@ namespace BitRunner.Core
             return builder.ToString();
         }
 
+        private static string Signed(int value)
+        {
+            return value > 0 ? "+" + value : value.ToString();
+        }
+
         public static string TagName(ItemTag tag)
         {
             switch (tag)
@@ -358,6 +385,8 @@ namespace BitRunner.Core
                     return "容器";
                 case ItemTag.CpuChip:
                     return "芯片槽";
+                case ItemTag.Assist:
+                    return "探索辅助";
                 default:
                     return "无";
             }
@@ -383,6 +412,7 @@ namespace BitRunner.Core
             AppendTag(names, tags, ItemTag.Targeting);
             AppendTag(names, tags, ItemTag.Container);
             AppendTag(names, tags, ItemTag.CpuChip);
+            AppendTag(names, tags, ItemTag.Assist);
             return names.Count == 0 ? "无" : string.Join(" / ", names);
         }
 

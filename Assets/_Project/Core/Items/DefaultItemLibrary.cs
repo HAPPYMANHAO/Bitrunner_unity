@@ -1610,7 +1610,205 @@ namespace BitRunner.Core
                     EnergyCost = 0,
                     Value = 0,
                     Description = "占 1×2。放进潜网舱能解开关卡锁着的另一条路。它不会用掉。"
-                }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_light_1",
+                    Level = 1,
+                    DisplayName = "光源 I",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 4,
+                    Value = 60,
+                    Description = "探索时携带：战利品 +12pp，警戒 +1（更容易遇到敌人）。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "light",
+                        Tier = 1,
+                        LootPercent = 12,
+                        EnemyPercent = 0,
+                        DamagePercent = 0,
+                        AlertDelta = 1
+                    }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_light_2",
+                    Level = 2,
+                    DisplayName = "光源 II",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 5,
+                    Value = 120,
+                    Description = "探索时携带：战利品 +18pp，警戒 +2。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "light",
+                        Tier = 2,
+                        LootPercent = 18,
+                        EnemyPercent = 0,
+                        DamagePercent = 0,
+                        AlertDelta = 2
+                    }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_light_3",
+                    Level = 3,
+                    DisplayName = "光源 III",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 6,
+                    Value = 200,
+                    Description = "探索时携带：战利品 +25pp，警戒 +3。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "light",
+                        Tier = 3,
+                        LootPercent = 25,
+                        EnemyPercent = 0,
+                        DamagePercent = 0,
+                        AlertDelta = 3
+                    }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_muffle_1",
+                    Level = 1,
+                    DisplayName = "消音器 I",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 4,
+                    Value = 60,
+                    Description = "探索时携带：战斗 -12pp，战利品 -6pp。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "muffle",
+                        Tier = 1,
+                        LootPercent = -6,
+                        EnemyPercent = -12,
+                        DamagePercent = 0,
+                        AlertDelta = 0
+                    }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_muffle_2",
+                    Level = 2,
+                    DisplayName = "消音器 II",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 5,
+                    Value = 120,
+                    Description = "探索时携带：战斗 -18pp，战利品 -9pp。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "muffle",
+                        Tier = 2,
+                        LootPercent = -9,
+                        EnemyPercent = -18,
+                        DamagePercent = 0,
+                        AlertDelta = 0
+                    }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_muffle_3",
+                    Level = 3,
+                    DisplayName = "消音器 III",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 6,
+                    Value = 200,
+                    Description = "探索时携带：战斗 -25pp，战利品 -12pp。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "muffle",
+                        Tier = 3,
+                        LootPercent = -12,
+                        EnemyPercent = -25,
+                        DamagePercent = 0,
+                        AlertDelta = 0
+                    }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_ward_1",
+                    Level = 1,
+                    DisplayName = "护符 I",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 4,
+                    Value = 60,
+                    Description = "探索时携带：受伤 -12pp。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "ward",
+                        Tier = 1,
+                        LootPercent = 0,
+                        EnemyPercent = 0,
+                        DamagePercent = -12,
+                        AlertDelta = 0
+                    }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_ward_2",
+                    Level = 2,
+                    DisplayName = "护符 II",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 5,
+                    Value = 120,
+                    Description = "探索时携带：受伤 -18pp。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "ward",
+                        Tier = 2,
+                        LootPercent = 0,
+                        EnemyPercent = 0,
+                        DamagePercent = -18,
+                        AlertDelta = 0
+                    }
+                },
+                new ItemDefinition
+                {
+                    Id = "flag_ward_3",
+                    Level = 3,
+                    DisplayName = "护符 III",
+                    Category = ItemCategory.Tool,
+                    Activation = ItemActivation.Passive,
+                    Shape = ItemShape.Parse("#"),
+                    Tags = ItemTag.Assist,
+                    MaxDurability = 6,
+                    Value = 200,
+                    Description = "探索时携带：受伤 -25pp。每次确认行动消耗 1 点耐久。",
+                    Assist = new AssistSpec
+                    {
+                        Family = "ward",
+                        Tier = 3,
+                        LootPercent = 0,
+                        EnemyPercent = 0,
+                        DamagePercent = -25,
+                        AlertDelta = 0
+                    }
+                },
             });
         }
     }

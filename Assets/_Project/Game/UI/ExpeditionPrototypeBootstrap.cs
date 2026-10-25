@@ -21,6 +21,7 @@ namespace BitRunner.Game
         private static readonly Color LogColor = new Color32(123, 196, 127, 255);
         private static readonly Color SystemColor = new Color32(127, 199, 217, 255);
         private static readonly Color DangerColor = new Color32(226, 107, 91, 255);
+        private static readonly Color WarningColor = new Color32(226, 190, 90, 255);
         private static readonly Color LootColor = new Color32(220, 200, 70, 255);
         private static readonly Color HpColor = new Color32(214, 92, 82, 255);
         private static readonly Color BagColor = new Color32(91, 160, 210, 255);
@@ -70,6 +71,10 @@ namespace BitRunner.Game
         private RectTransform _tabBagRect;
         private BaseDragInteraction _actionDrag;
         private string _selectedActionId;
+        private readonly List<int> _selectedAssistIds = new List<int>();
+        private readonly List<RectTransform> _assistChipRects = new List<RectTransform>();
+        private readonly List<Text> _assistChipTexts = new List<Text>();
+        private Text _assistHint;
         private bool _showPlayerBag;
         private bool _ended;
 
@@ -114,6 +119,8 @@ namespace BitRunner.Game
             _bag = GameSession.PlayerBag;
             _secure = GameSession.Secure;
             _scenario = GameSession.Scenario;
+            _selectedAssistIds.Clear();
+            _selectedAssistIds.AddRange(GameSession.ExpeditionAssistIds);
             _palette = BuildPalette(_catalog);
             _actionCatalog = ExpeditionActionItemLibrary.CreateCatalog();
             _combinedCatalog = BuildCombinedCatalog(_catalog, _actionCatalog);
@@ -226,6 +233,16 @@ namespace BitRunner.Game
                 return;
             }
 
+            for (int i = 0; i < _assistChipRects.Count; i++)
+            {
+                if (_assistChipRects[i].gameObject.activeSelf
+                    && RectTransformUtility.RectangleContainsScreenPoint(_assistChipRects[i], screen, null))
+                {
+                    RemoveAssistAt(i);
+                    return;
+                }
+            }
+
             if (RectTransformUtility.RectangleContainsScreenPoint(_confirmRect, screen, null))
             {
                 ConfirmSelected();
@@ -245,6 +262,7 @@ namespace BitRunner.Game
             ExpeditionSelection selection = ExpeditionSelectionRules.Evaluate(
                 _scenario,
                 items,
+                SelectedAssistItems(),
                 _combinedCatalog,
                 GameSession.ExpeditionHp,
                 GameSession.ExpeditionMaxHp);
@@ -279,17 +297,24 @@ namespace BitRunner.Game
                 return;
             }
 
-            ExpeditionResolution result = GameSession.ResolveExpeditionAction(action.Id);
+            ExpeditionResolution result = GameSession.ResolveExpeditionAction(action.Id, selection.Assists);
             if (result == null)
             {
                 SetNarration("这个行动已经无法执行。");
                 return;
             }
 
+            if (result.IsExit || _scenario.IsComplete)
+            {
+                _selectedAssistIds.Clear();
+                SyncAssistIds();
+            }
+
             _selectedActionId = null;
             RebuildActionBags();
-            AppendLog(result.Text);
-            SetNarration(result.Text);
+            string resultMessage = GameSession.LastMessage;
+            AppendLog(resultMessage);
+            SetNarration(resultMessage);
             RefreshAll();
 
             if (result.Kind == ExpeditionOutcomeKind.Damage && GameSession.ExpeditionHp <= 0)
@@ -420,7 +445,7 @@ namespace BitRunner.Game
                 _actionBag.TryAdd(option.Id, definition.Shape, false, out placed);
             }
 
-            _selectedActionBag = new BagInventory(2, 2);
+            _selectedActionBag = new BagInventory(4, 3);
             if (_actionView != null)
             {
                 _actionView.Rebind(_actionBag);
@@ -586,12 +611,49 @@ namespace BitRunner.Game
         private void RefreshSelected()
         {
             IReadOnlyList<PlacedItem> items = _selectedActionBag != null ? _selectedActionBag.Items : null;
+            List<PlacedItem> assists = SelectedAssistItems();
             ExpeditionSelection selection = ExpeditionSelectionRules.Evaluate(
                 _scenario,
                 items,
+                assists,
                 _combinedCatalog,
                 GameSession.ExpeditionHp,
                 GameSession.ExpeditionMaxHp);
+
+            RefreshAssistChips();
+
+            if (_selectedActionView != null)
+            {
+                _selectedActionView.ItemEnabledPredicate = IsExpeditionUsableItem;
+                _selectedActionView.Refresh();
+            }
+
+            if (!selection.IsValid)
+            {
+                if (selection.Item != null)
+                {
+                    ItemDefinition definition;
+                    _combinedCatalog.TryGet(selection.Item.DefinitionId, out definition);
+                    _selectedLabel.text = definition != null ? definition.DisplayName : "无效物品";
+                    _selectedLabel.color = TextColor;
+                    _selectedRisk.text = "无法使用";
+                    _selectedRisk.color = DangerColor;
+                    _detailText.text = selection.Reason;
+                }
+                else
+                {
+                    _selectedLabel.text = "拖入一个行动";
+                    _selectedLabel.color = MutedColor;
+                    _selectedRisk.text = selection.Reason;
+                    _selectedRisk.color = DangerColor;
+                    _detailText.text = selection.Reason;
+                }
+
+                _confirmText.text = "确认";
+                _confirmText.color = MutedColor;
+                _confirmRect.GetComponent<Image>().color = ConfirmColor;
+                return;
+            }
 
             if (selection.IsAction && selection.Action != null)
             {
@@ -600,9 +662,7 @@ namespace BitRunner.Game
                 _selectedLabel.color = TextColor;
                 _selectedRisk.text = "风险：" + ExpeditionText.RiskName(action.Risk);
                 _selectedRisk.color = RiskColor(action.Risk);
-                _detailText.text = "风险：" + ExpeditionText.RiskName(action.Risk)
-                                   + "\n" + action.Description
-                                   + "\n可能的回声：\n" + OutcomeSummary(action);
+                _detailText.text = BuildOutcomePreview(action, selection);
                 _confirmText.text = action.IsExit ? "确认撤离" : "确认行动";
                 _confirmText.color = TextColor;
                 _confirmRect.GetComponent<Image>().color = ConfirmReadyColor;
@@ -617,34 +677,428 @@ namespace BitRunner.Game
                 _selectedRisk.text = "可使用物品";
                 _selectedRisk.color = SystemColor;
                 _detailText.text = "使用 " + definition.DisplayName + "。\n"
-                                   + "这会推进一个探索阶段，并消耗该物品。";
+                                   + "推进 1 个探索阶段并消耗该物品。\n"
+                                   + "辅助标志不生效。";
                 _confirmText.text = "确认使用";
                 _confirmText.color = TextColor;
                 _confirmRect.GetComponent<Image>().color = ConfirmReadyColor;
                 return;
             }
+        }
 
-            if (selection.Item != null)
+        private string BuildOutcomePreview(ExpeditionActionOption action, ExpeditionSelection selection)
+        {
+            int projectedAlert = _scenario.Alert + selection.AssistAlertDelta;
+            var context = new ExpeditionContext
             {
+                Hp = GameSession.ExpeditionHp,
+                MaxHp = GameSession.ExpeditionMaxHp,
+                BagFree = _bag != null ? _bag.FreeCellCount : 0,
+                Alert = projectedAlert
+            };
+
+            var basePct = new Dictionary<ExpeditionOutcomeKind, double>();
+            var finalPct = new Dictionary<ExpeditionOutcomeKind, double>();
+            var order = new List<ExpeditionOutcomeKind>();
+
+            var baseContext = context;
+            baseContext.Alert = _scenario.Alert;
+            AddOddsByKind(ExpeditionOdds.Compute(action, baseContext, null), basePct, order);
+            AddOddsByKind(ExpeditionOdds.Compute(action, context, selection.AssistSpecs), finalPct, order);
+
+            order.Sort((a, b) => finalPct[b].CompareTo(finalPct[a]));
+
+            var builder = new StringBuilder();
+            builder.Append("警戒 ").Append(_scenario.Alert);
+            if (selection.AssistAlertDelta != 0)
+            {
+                builder.Append(" → ").Append(projectedAlert);
+            }
+
+            int shown = 0;
+            for (int i = 0; i < order.Count && shown < 5; i++)
+            {
+                ExpeditionOutcomeKind kind = order[i];
+                if (finalPct[kind] < 0.5)
+                {
+                    continue;
+                }
+
+                int before = Mathf.RoundToInt((float)basePct[kind]);
+                int after = Mathf.RoundToInt((float)finalPct[kind]);
+                int aid = AssistDeltaFor(kind, selection);
+                builder.Append('\n').Append(ExpeditionText.OutcomeName(kind)).Append(' ');
+                if (aid != 0)
+                {
+                    builder.Append(before).Append("% → ").Append(after).Append('%');
+                    int delta = after - before;
+                    if (delta != 0)
+                    {
+                        builder.Append(" (").Append(delta > 0 ? "+" : string.Empty).Append(delta).Append(')');
+                    }
+                }
+                else
+                {
+                    builder.Append(after).Append('%');
+                }
+
+                ExpeditionOutcomeEntry sample = FirstOutcome(action, kind);
+                if (kind == ExpeditionOutcomeKind.Loot && sample != null && sample.LootIds != null)
+                {
+                    builder.Append(" · ").Append(sample.LootIds.Length).Append("件");
+                }
+                else if (kind == ExpeditionOutcomeKind.Combat)
+                {
+                    builder.Append(" · 遭遇敌人");
+                }
+                else if (kind == ExpeditionOutcomeKind.Damage && sample != null)
+                {
+                    builder.Append(" · ").Append(sample.Damage).Append("伤害");
+                }
+                else if (kind == ExpeditionOutcomeKind.Alert && sample != null)
+                {
+                    builder.Append(" · 警戒+").Append(sample.AlertDelta);
+                }
+
+                shown++;
+            }
+
+            if (selection.Assists.Count > 0)
+            {
+                builder.Append('\n').Append("辅助：").Append(AssistNames(selection));
+            }
+
+            return builder.ToString();
+        }
+
+        private static void AddOddsByKind(
+            List<ExpeditionOddsEntry> odds,
+            Dictionary<ExpeditionOutcomeKind, double> target,
+            List<ExpeditionOutcomeKind> order)
+        {
+            for (int i = 0; i < odds.Count; i++)
+            {
+                ExpeditionOutcomeKind kind = odds[i].Entry.Kind;
+                if (!target.ContainsKey(kind))
+                {
+                    target[kind] = 0;
+                    if (!order.Contains(kind))
+                    {
+                        order.Add(kind);
+                    }
+                }
+
+                target[kind] += odds[i].FinalPercent;
+            }
+        }
+
+        private static ExpeditionOutcomeEntry FirstOutcome(ExpeditionActionOption action, ExpeditionOutcomeKind kind)
+        {
+            if (action == null || action.Outcomes == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < action.Outcomes.Count; i++)
+            {
+                if (action.Outcomes[i].Kind == kind)
+                {
+                    return action.Outcomes[i];
+                }
+            }
+
+            return null;
+        }
+
+        private static int AssistDeltaFor(ExpeditionOutcomeKind kind, ExpeditionSelection selection)
+        {
+            switch (kind)
+            {
+                case ExpeditionOutcomeKind.Loot:
+                    return selection.LootBonus;
+                case ExpeditionOutcomeKind.Combat:
+                    return selection.EnemyBonus
+                           + Mathf.RoundToInt(selection.AssistAlertDelta * (float)ExpeditionOdds.AlertPercentPerPoint);
+                case ExpeditionOutcomeKind.Damage:
+                    return selection.DamageBonus;
+                default:
+                    return 0;
+            }
+        }
+
+        private string AssistNames(ExpeditionSelection selection)
+        {
+            var parts = new List<string>();
+            for (int i = 0; i < selection.Assists.Count; i++)
+            {
+                PlacedItem item = selection.Assists[i];
                 ItemDefinition definition;
-                _combinedCatalog.TryGet(selection.Item.DefinitionId, out definition);
-                _selectedLabel.text = definition != null ? definition.DisplayName : "无效物品";
-                _selectedLabel.color = TextColor;
-                _selectedRisk.text = "无法使用";
-                _selectedRisk.color = DangerColor;
-                _detailText.text = selection.Reason;
+                if (_combinedCatalog.TryGet(item.DefinitionId, out definition))
+                {
+                    parts.Add(definition.DisplayName);
+                }
             }
-            else
+
+            return string.Join("、", parts.ToArray());
+        }
+
+        private bool TryAssistDrop(BaseBagSource source, PlacedItem item, BaseBagSource target)
+        {
+            if (target == null || target.Name != "SELECTED" || item == null)
             {
-                _selectedLabel.text = "拖入一个物品";
-                _selectedLabel.color = MutedColor;
-                _selectedRisk.text = selection.Reason;
-                _selectedRisk.color = DangerColor;
-                _detailText.text = selection.Reason;
+                return false;
             }
-            _confirmText.text = "确认";
-            _confirmText.color = MutedColor;
-            _confirmRect.GetComponent<Image>().color = ConfirmColor;
+
+            ItemDefinition definition;
+            if (_combinedCatalog == null || !_combinedCatalog.TryGet(item.DefinitionId, out definition)
+                || definition.Assist == null)
+            {
+                return false;
+            }
+
+            string message;
+            TryToggleAssist(item.InstanceId, out message);
+            if (!string.IsNullOrEmpty(message))
+            {
+                SetNarration(message);
+            }
+
+            return true;
+        }
+
+        private bool TryToggleAssist(int instanceId, out string message)
+        {
+            if (_selectedAssistIds.Contains(instanceId))
+            {
+                _selectedAssistIds.Remove(instanceId);
+                SyncAssistIds();
+                RefreshSelected();
+                message = "已从已选行动移除辅助标志。";
+                return true;
+            }
+
+            PlacedItem item;
+            if (_bag == null || !_bag.TryGet(instanceId, out item))
+            {
+                message = "物品不存在。";
+                return false;
+            }
+
+            ItemDefinition definition;
+            if (_combinedCatalog == null || !_combinedCatalog.TryGet(item.DefinitionId, out definition)
+                || definition.Assist == null)
+            {
+                message = "这不是探索辅助标志。";
+                return false;
+            }
+
+            if (_selectedAssistIds.Count >= 3)
+            {
+                message = "已选行动最多放 3 个辅助标志。";
+                return false;
+            }
+
+            for (int i = 0; i < _selectedAssistIds.Count; i++)
+            {
+                PlacedItem other;
+                ItemDefinition otherDefinition;
+                if (_bag.TryGet(_selectedAssistIds[i], out other)
+                    && _combinedCatalog.TryGet(other.DefinitionId, out otherDefinition)
+                    && otherDefinition.Assist != null
+                    && otherDefinition.Assist.Family == definition.Assist.Family)
+                {
+                    message = "同系列辅助只能携带一个。";
+                    return false;
+                }
+            }
+
+            int durability = ItemDurability.Current(item, definition);
+            if (durability <= 0)
+            {
+                message = definition.DisplayName + " 已耗尽。";
+                return false;
+            }
+
+            _selectedAssistIds.Add(instanceId);
+            SyncAssistIds();
+            RefreshSelected();
+            message = "已加入 " + definition.DisplayName + "（耐久 " + durability + "/" + definition.DurabilityMax + "）。";
+            return true;
+        }
+
+        private void RemoveAssistAt(int index)
+        {
+            if (index < 0 || index >= _selectedAssistIds.Count)
+            {
+                return;
+            }
+
+            _selectedAssistIds.RemoveAt(index);
+            SyncAssistIds();
+            SetNarration("已移除辅助标志。");
+            RefreshSelected();
+        }
+
+        private void SyncAssistIds()
+        {
+            GameSession.ExpeditionAssistIds.Clear();
+            for (int i = 0; i < _selectedAssistIds.Count; i++)
+            {
+                GameSession.ExpeditionAssistIds.Add(_selectedAssistIds[i]);
+            }
+        }
+
+        private List<PlacedItem> SelectedAssistItems()
+        {
+            var result = new List<PlacedItem>();
+            if (_bag == null || _combinedCatalog == null)
+            {
+                return result;
+            }
+
+            bool changed = false;
+            for (int i = _selectedAssistIds.Count - 1; i >= 0; i--)
+            {
+                PlacedItem item;
+                ItemDefinition definition;
+                if (!_bag.TryGet(_selectedAssistIds[i], out item)
+                    || !_combinedCatalog.TryGet(item.DefinitionId, out definition)
+                    || definition.Assist == null
+                    || ItemDurability.Current(item, definition) <= 0)
+                {
+                    _selectedAssistIds.RemoveAt(i);
+                    changed = true;
+                    continue;
+                }
+
+                result.Insert(0, item);
+            }
+
+            if (changed)
+            {
+                SyncAssistIds();
+            }
+
+            return result;
+        }
+
+        private void RefreshAssistChips()
+        {
+            SelectedAssistItems();
+            if (_assistHint != null)
+            {
+                _assistHint.text = "辅助 " + _selectedAssistIds.Count + "/3 · 拖入标志";
+                _assistHint.color = _selectedAssistIds.Count >= 3 ? WarningColor : MutedColor;
+            }
+
+            for (int i = 0; i < _assistChipRects.Count; i++)
+            {
+                bool show = i < _selectedAssistIds.Count;
+                _assistChipRects[i].gameObject.SetActive(show);
+                if (!show)
+                {
+                    continue;
+                }
+
+                PlacedItem item;
+                ItemDefinition definition;
+                if (_bag == null || !_bag.TryGet(_selectedAssistIds[i], out item)
+                    || _combinedCatalog == null || !_combinedCatalog.TryGet(item.DefinitionId, out definition)
+                    || definition.Assist == null)
+                {
+                    _assistChipRects[i].gameObject.SetActive(false);
+                    continue;
+                }
+
+                string glyph = definition.DisplayName.Length > 0 ? definition.DisplayName.Substring(0, 1) : "辅";
+                int durability = ItemDurability.Current(item, definition);
+                _assistChipTexts[i].text = glyph + "\n" + durability;
+                _assistChipTexts[i].color = AssistChipColor(definition.Assist.Family);
+                _assistChipRects[i].GetComponent<Image>().color = AssistChipBackground(definition.Assist.Family);
+            }
+        }
+
+        private PlacedItem FindHoveredAssist(Vector2 screen)
+        {
+            if (_bag == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < _assistChipRects.Count && i < _selectedAssistIds.Count; i++)
+            {
+                if (!_assistChipRects[i].gameObject.activeSelf)
+                {
+                    continue;
+                }
+
+                if (RectTransformUtility.RectangleContainsScreenPoint(_assistChipRects[i], screen, null))
+                {
+                    PlacedItem item;
+                    if (_bag.TryGet(_selectedAssistIds[i], out item))
+                    {
+                        return item;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private bool IsExpeditionUsableItem(PlacedItem item)
+        {
+            if (item == null || _combinedCatalog == null)
+            {
+                return false;
+            }
+
+            ItemDefinition definition;
+            if (!_combinedCatalog.TryGet(item.DefinitionId, out definition) || definition == null)
+            {
+                return false;
+            }
+
+            if (definition.Assist != null)
+            {
+                return true;
+            }
+
+            if (_scenario != null && _scenario.Find(item.DefinitionId) != null)
+            {
+                return true;
+            }
+
+            return ItemUse.CanUseOutsideCombat(definition);
+        }
+
+        private static Color AssistChipColor(string family)
+        {
+            switch (family)
+            {
+                case "light":
+                    return new Color(0.98f, 0.82f, 0.48f, 1f);
+                case "muffle":
+                    return new Color(0.58f, 0.78f, 0.96f, 1f);
+                case "ward":
+                    return new Color(0.62f, 0.88f, 0.66f, 1f);
+                default:
+                    return Color.white;
+            }
+        }
+
+        private static Color AssistChipBackground(string family)
+        {
+            switch (family)
+            {
+                case "light":
+                    return new Color32(74, 58, 30, 255);
+                case "muffle":
+                    return new Color32(32, 54, 74, 255);
+                case "ward":
+                    return new Color32(34, 66, 42, 255);
+                default:
+                    return new Color32(42, 48, 57, 255);
+            }
         }
 
         private static string OutcomeSummary(ExpeditionActionOption action)
@@ -737,6 +1191,7 @@ namespace BitRunner.Game
             _playerActionBagRect = CreateBagRect(panel, new Vector2(0f, -10f), new Vector2(6f * BagView.CellSize, 5f * BagView.CellSize));
             _playerActionView = _playerActionBagRect.gameObject.AddComponent<BagView>();
             _playerActionView.Initialize(_bag, _playerActionBagRect, _actionPalette, _combinedCatalog);
+            _playerActionView.ItemEnabledPredicate = IsExpeditionUsableItem;
             _playerActionView.gameObject.SetActive(false);
 
             _tabActionRect = CreateCenteredPanel(panel, "TabAction", new Vector2(-70f, -106f), new Vector2(58f, 18f), SelectedColor);
@@ -747,23 +1202,34 @@ namespace BitRunner.Game
 
         private void BuildSelection(Transform canvas)
         {
-            RectTransform selected = CreateCenteredPanel(canvas, "Selected", new Vector2(125f, 38f), new Vector2(180f, 130f), PanelColor);
-            CreateCenteredText(selected, "Title", "已选行动", 9, TextColor, new Vector2(0f, 54f), new Vector2(164f, 12f));
+            RectTransform selected = CreateCenteredPanel(canvas, "Selected", new Vector2(125f, 42f), new Vector2(184f, 150f), PanelColor);
+            CreateCenteredText(selected, "Title", "已选行动", 9, TextColor, new Vector2(0f, 64f), new Vector2(168f, 12f));
 
-            _selectedActionBag = new BagInventory(2, 2);
-            _selectedActionBagRect = CreateBagRect(selected, new Vector2(-52f, 15f), new Vector2(2f * BagView.CellSize, 2f * BagView.CellSize));
+            _selectedActionBag = new BagInventory(4, 3);
+            _selectedActionBagRect = CreateBagRect(selected, new Vector2(-54f, 18f), new Vector2(4f * BagView.CellSize, 3f * BagView.CellSize));
             _selectedActionView = _selectedActionBagRect.gameObject.AddComponent<BagView>();
             _selectedActionView.Initialize(_selectedActionBag, _selectedActionBagRect, _actionPalette, _combinedCatalog);
+            _selectedActionView.ItemEnabledPredicate = IsExpeditionUsableItem;
 
-            _selectedLabel = CreateText(selected, "Label", "拖入一个行动", 9, MutedColor, new Vector2(70f, -20f), new Vector2(92f, 12f), TextAnchor.UpperLeft);
-            _selectedRisk = CreateText(selected, "Risk", string.Empty, 7, MutedColor, new Vector2(70f, -35f), new Vector2(92f, 10f), TextAnchor.UpperLeft);
+            _selectedLabel = CreateText(selected, "Label", "拖入一个行动", 9, MutedColor, new Vector2(68f, -14f), new Vector2(108f, 12f), TextAnchor.UpperLeft);
+            _selectedRisk = CreateText(selected, "Risk", string.Empty, 7, MutedColor, new Vector2(68f, -28f), new Vector2(108f, 10f), TextAnchor.UpperLeft);
+            _assistHint = CreateText(selected, "AssistHint", "辅助 0/3", 7, MutedColor, new Vector2(68f, -40f), new Vector2(108f, 10f), TextAnchor.UpperLeft);
 
-            _confirmRect = CreateCenteredPanel(selected, "Confirm", new Vector2(0f, -46f), new Vector2(150f, 22f), ConfirmColor);
+            for (int i = 0; i < 3; i++)
+            {
+                RectTransform chip = CreateCenteredPanel(selected, "Assist" + i, new Vector2(-54f + i * 20f, -20f), new Vector2(16f, 16f), new Color32(42, 48, 57, 255));
+                Text chipText = CreateCenteredText(chip, "Label", string.Empty, 6, TextColor, Vector2.zero, new Vector2(16f, 16f));
+                chip.gameObject.SetActive(false);
+                _assistChipRects.Add(chip);
+                _assistChipTexts.Add(chipText);
+            }
+
+            _confirmRect = CreateCenteredPanel(selected, "Confirm", new Vector2(0f, -58f), new Vector2(150f, 22f), ConfirmColor);
             _confirmText = CreateCenteredText(_confirmRect, "Label", "确认", 8, MutedColor, Vector2.zero, new Vector2(146f, 20f));
 
-            RectTransform detail = CreateCenteredPanel(canvas, "Detail", new Vector2(125f, -65f), new Vector2(180f, 110f), PanelColor);
-            CreateText(detail, "Title", "行动详情", 9, TextColor, new Vector2(8f, -7f), new Vector2(164f, 12f), TextAnchor.UpperLeft);
-            _detailText = CreateText(detail, "Body", string.Empty, 8, MutedColor, new Vector2(8f, -24f), new Vector2(164f, 78f), TextAnchor.UpperLeft);
+            RectTransform detail = CreateCenteredPanel(canvas, "Detail", new Vector2(125f, -94f), new Vector2(184f, 112f), PanelColor);
+            CreateText(detail, "Title", "结果预估", 9, TextColor, new Vector2(8f, -7f), new Vector2(168f, 12f), TextAnchor.UpperLeft);
+            _detailText = CreateText(detail, "Body", string.Empty, 8, MutedColor, new Vector2(8f, -24f), new Vector2(168f, 84f), TextAnchor.UpperLeft);
             _detailText.verticalOverflow = VerticalWrapMode.Truncate;
         }
 
@@ -797,6 +1263,7 @@ namespace BitRunner.Game
                 null);
             _actionDrag.Changed += OnActionBagChanged;
             _actionDrag.ItemClicked += OnActionItemClicked;
+            _actionDrag.TrySpecialDrop = TryAssistDrop;
             _actionDrag.Message += SetNarration;
             _actionDrag.QuickMoveTarget = ActionQuickMoveTarget;
         }
@@ -1208,6 +1675,19 @@ namespace BitRunner.Game
                 return;
             }
 
+            PlacedItem assist = FindHoveredAssist(screen);
+            if (assist != null)
+            {
+                ItemDefinition assistDefinition;
+                if (_combinedCatalog.TryGet(assist.DefinitionId, out assistDefinition))
+                {
+                    ShowItemTooltip(assist, assistDefinition, screen);
+                }
+
+                ClearSynergyHighlights(sources);
+                return;
+            }
+
             BaseBagSource hoveredSource;
             PlacedItem item = FindHoveredItem(sources, screen, out hoveredSource);
             if (item == null)
@@ -1226,6 +1706,11 @@ namespace BitRunner.Game
             }
 
             UpdateSynergyHighlights(sources, hoveredSource, item);
+            ShowItemTooltip(item, definition, screen);
+        }
+
+        private void ShowItemTooltip(PlacedItem item, ItemDefinition definition, Vector2 screen)
+        {
             _itemTooltipText.text = ItemText.Describe(definition, item, _bag.CountOf(definition.AmmoItemId));
             const float tooltipWidth = 240f;
             _itemTooltipText.rectTransform.sizeDelta = new Vector2(tooltipWidth - 16f, 200f);

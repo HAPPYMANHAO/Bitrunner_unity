@@ -302,7 +302,8 @@ namespace BitRunner.Game
             if (_catalog != null)
             {
                 ItemDefinition definition;
-                if (_catalog.TryGet(item.DefinitionId, out definition) && definition.Category == ItemCategory.Action)
+                if (_catalog.TryGet(item.DefinitionId, out definition)
+                    && (definition.Category == ItemCategory.Action || definition.Assist != null))
                 {
                     var glyphGo = new GameObject("Glyph", typeof(RectTransform), typeof(Text));
                     glyphGo.transform.SetParent(go.transform, false);
@@ -315,10 +316,12 @@ namespace BitRunner.Game
 
                     var glyph = glyphGo.GetComponent<Text>();
                     glyph.font = GameFonts.Ui;
-                    glyph.fontSize = 20;
+                    glyph.fontSize = definition.Assist != null ? 10 : 20;
                     glyph.color = new Color32(240, 244, 250, 255);
                     glyph.alignment = TextAnchor.MiddleCenter;
-                    glyph.text = ExpeditionActionItemLibrary.Glyph(item.DefinitionId);
+                    glyph.text = definition.Assist != null
+                        ? (definition.DisplayName.Length > 0 ? definition.DisplayName.Substring(0, 1) : "辅")
+                        : ExpeditionActionItemLibrary.Glyph(item.DefinitionId);
                     glyph.raycastTarget = false;
                     glyph.horizontalOverflow = HorizontalWrapMode.Overflow;
                     glyph.verticalOverflow = VerticalWrapMode.Overflow;

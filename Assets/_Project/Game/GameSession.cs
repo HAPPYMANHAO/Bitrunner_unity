@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BitRunner.Core;
 using UnityEngine;
 
@@ -33,6 +34,9 @@ namespace BitRunner.Game
         public static string CurrentDiveName { get; private set; }
         public static string LastMessage { get; set; }
         public static ExpeditionScenario Scenario { get; private set; }
+
+        /// <summary>已选行动里的辅助标志实例 ID；跨战斗场景重载保留。</summary>
+        public static readonly List<int> ExpeditionAssistIds = new List<int>();
         public static int ExpeditionHp { get; set; }
         public static int EncountersCleared { get; private set; }
         public static int LootTaken { get; private set; }
@@ -282,6 +286,7 @@ namespace BitRunner.Game
             HasPendingEncounter = false;
             LastAttrition = default(ExpeditionAttrition.Report);
             ExpeditionAttrition.MarkOwned(PlayerBag);
+            ExpeditionAssistIds.Clear();
             LastMessage = plan.Name + " 开始。第 " + Campaign.Day + "/7 天。";
             return true;
         }
@@ -455,11 +460,54 @@ namespace BitRunner.Game
                 modifiers.ApplyArmorBase());
         }
 
-        public static ExpeditionResolution ResolveExpeditionAction(string actionId)
+        public static ExpeditionResolution ResolveExpeditionAction(
+            string actionId,
+            IReadOnlyList<PlacedItem> assistItems = null)
         {
             if (Scenario == null || !Campaign.ExpeditionOpen)
             {
                 return null;
+            }
+
+            var assists = new List<AssistSpec>();
+            var usedAssists = new List<PlacedItem>();
+            if (assistItems != null && PlayerBag != null && Catalog != null)
+            {
+                var families = new List<string>();
+                for (int i = 0; i < assistItems.Count && families.Count < 3; i++)
+                {
+                    PlacedItem requested = assistItems[i];
+                    if (requested == null)
+                    {
+                        continue;
+                    }
+
+                    PlacedItem owned;
+                    if (!PlayerBag.TryGet(requested.InstanceId, out owned))
+                    {
+                        continue;
+                    }
+
+                    ItemDefinition definition = Catalog.Get(owned.DefinitionId);
+                    if (definition == null || definition.Assist == null)
+                    {
+                        continue;
+                    }
+
+                    string family = definition.Assist.Family;
+                    if (!string.IsNullOrEmpty(family) && families.Contains(family))
+                    {
+                        continue;
+                    }
+
+                    if (!string.IsNullOrEmpty(family))
+                    {
+                        families.Add(family);
+                    }
+
+                    assists.Add(definition.Assist);
+                    usedAssists.Add(owned);
+                }
             }
 
             var context = new ExpeditionContext
@@ -470,13 +518,34 @@ namespace BitRunner.Game
                 Alert = Scenario.Alert
             };
 
-            ExpeditionResolution resolution = Scenario.Resolve(actionId, context);
+            ExpeditionResolution resolution = Scenario.Resolve(actionId, context, assists);
             if (resolution == null)
             {
                 return null;
             }
 
             LastMessage = resolution.Text;
+            if (!resolution.IsExit && usedAssists.Count > 0)
+            {
+                var broken = new List<string>();
+                for (int i = 0; i < usedAssists.Count; i++)
+                {
+                    PlacedItem item = usedAssists[i];
+                    ItemDefinition definition = Catalog.Get(item.DefinitionId);
+                    int next = ItemDurability.Consume(item, definition, 1);
+                    if (next <= 0)
+                    {
+                        PlayerBag.Remove(item.InstanceId);
+                        broken.Add(definition.DisplayName);
+                    }
+                }
+
+                if (broken.Count > 0)
+                {
+                    LastMessage += " " + string.Join("、", broken.ToArray()) + " 耐久耗尽，已损坏。";
+                }
+            }
+
             if (resolution.Kind == ExpeditionOutcomeKind.Damage)
             {
                 ExpeditionHp = Mathf.Max(0, ExpeditionHp - resolution.Damage);
@@ -594,6 +663,7 @@ namespace BitRunner.Game
 
         public static void CompleteExpedition(bool survived)
         {
+            ExpeditionAssistIds.Clear();
             if (Campaign == null || !Campaign.ExpeditionOpen)
             {
                 return;

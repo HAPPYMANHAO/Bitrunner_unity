@@ -70,7 +70,8 @@ namespace BitRunner.Core
             "scrap", "wire", "circuit", "alloy", "ammo",
             "overclock_core", "coolant_loop", "targeting_array", "ram_piston",
             "corrosive_dart", "fence_module", "parts_case", "med_pouch",
-            "key_box", "servo", "capacitor", "coolant_tank"
+            "key_box", "servo", "capacitor", "coolant_tank",
+            "flag_light_1", "flag_muffle_1", "flag_ward_1"
         };
 
         /// <summary>
@@ -88,6 +89,9 @@ namespace BitRunner.Core
             "key_box", "servo", "capacitor", "coolant_tank",
             "superalloy", "optic_fiber", "plasma_cell", "dive_deep",
             "singularity_core", "monopole_wire", "corona_shard", "dive_core",
+            "flag_light_1", "flag_light_2", "flag_light_3",
+            "flag_muffle_1", "flag_muffle_2", "flag_muffle_3",
+            "flag_ward_1", "flag_ward_2", "flag_ward_3",
             "rail_lance", "plasma_cutter", "flechette_gun", "reactor_maul",
             "reactive_plating", "ablative_shell", "hazmat_rig",
             "nano_stitcher", "overdrive_relay", "targeting_lattice",
@@ -98,7 +102,7 @@ namespace BitRunner.Core
 
         private static readonly string[] WildLootPool =
         {
-            "stone", "branch", "junk", "scrap", "ammo"
+            "stone", "branch", "junk", "scrap", "ammo", "flag_light_1", "flag_ward_1"
         };
 
         private static readonly string[] WildEnemyPool =

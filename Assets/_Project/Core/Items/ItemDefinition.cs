@@ -35,6 +35,9 @@ namespace BitRunner.Core
 
         public ContainerSpec ContainerSpec;
 
+        /// <summary>探索辅助标志的效果；普通物品为 null。</summary>
+        public AssistSpec Assist;
+
         public int EnergyCost = 1;
         public int Cooldown;
 

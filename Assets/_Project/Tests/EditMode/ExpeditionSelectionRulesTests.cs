@@ -77,6 +77,92 @@ namespace BitRunner.Tests
             Assert.IsNotEmpty(selection.Reason);
         }
 
+        [Test]
+        public void ActionWithAssistIsValidAndCarriesBonuses()
+        {
+            ExpeditionScenario scenario = Scenario();
+            ItemCatalog actionCatalog = ExpeditionActionItemLibrary.CreateCatalog();
+            ItemCatalog gameCatalog = DefaultItemLibrary.CreateCatalog();
+            ItemCatalog combined = Combine(gameCatalog, actionCatalog);
+            var actionBag = new BagInventory(4, 4);
+            var assistBag = new BagInventory(4, 4);
+            Place(actionBag, actionCatalog, FirstAction(scenario).Id);
+            Place(assistBag, gameCatalog, "flag_light_1");
+
+            ExpeditionSelection selection = ExpeditionSelectionRules.Evaluate(
+                scenario, actionBag.Items, assistBag.Items, combined, 40, 40);
+
+            Assert.IsTrue(selection.IsValid);
+            Assert.IsTrue(selection.IsAction);
+            Assert.AreEqual(1, selection.Assists.Count);
+            Assert.AreEqual(1, selection.AssistSpecs.Count);
+            Assert.AreEqual(12, selection.LootBonus);
+            Assert.AreEqual(1, selection.AssistAlertDelta);
+        }
+
+        [Test]
+        public void DuplicateAssistFamilyIsRejected()
+        {
+            ExpeditionScenario scenario = Scenario();
+            ItemCatalog actionCatalog = ExpeditionActionItemLibrary.CreateCatalog();
+            ItemCatalog gameCatalog = DefaultItemLibrary.CreateCatalog();
+            ItemCatalog combined = Combine(gameCatalog, actionCatalog);
+            var actionBag = new BagInventory(4, 4);
+            var assistBag = new BagInventory(6, 4);
+            Place(actionBag, actionCatalog, FirstAction(scenario).Id);
+            Place(assistBag, gameCatalog, "flag_light_1");
+            Place(assistBag, gameCatalog, "flag_light_2");
+
+            ExpeditionSelection selection = ExpeditionSelectionRules.Evaluate(
+                scenario, actionBag.Items, assistBag.Items, combined, 40, 40);
+
+            Assert.IsFalse(selection.IsValid);
+            StringAssert.Contains("同系列", selection.Reason);
+        }
+
+        [Test]
+        public void MoreThanThreeAssistsAreRejected()
+        {
+            ExpeditionScenario scenario = Scenario();
+            ItemCatalog actionCatalog = ExpeditionActionItemLibrary.CreateCatalog();
+            ItemCatalog gameCatalog = DefaultItemLibrary.CreateCatalog();
+            ItemCatalog combined = Combine(gameCatalog, actionCatalog);
+            var actionBag = new BagInventory(4, 4);
+            var assistBag = new BagInventory(8, 4);
+            Place(actionBag, actionCatalog, FirstAction(scenario).Id);
+            Place(assistBag, gameCatalog, "flag_light_1");
+            Place(assistBag, gameCatalog, "flag_light_2");
+            Place(assistBag, gameCatalog, "flag_muffle_1");
+            Place(assistBag, gameCatalog, "flag_ward_1");
+
+            ExpeditionSelection selection = ExpeditionSelectionRules.Evaluate(
+                scenario, actionBag.Items, assistBag.Items, combined, 40, 40);
+
+            Assert.IsFalse(selection.IsValid);
+            StringAssert.Contains("3", selection.Reason);
+        }
+
+        [Test]
+        public void HealingItemIgnoresAssists()
+        {
+            ExpeditionScenario scenario = Scenario();
+            ItemCatalog gameCatalog = DefaultItemLibrary.CreateCatalog();
+            ItemCatalog actionCatalog = ExpeditionActionItemLibrary.CreateCatalog();
+            ItemCatalog combined = Combine(gameCatalog, actionCatalog);
+            var actionBag = new BagInventory(4, 4);
+            var assistBag = new BagInventory(4, 4);
+            Place(actionBag, gameCatalog, "patch");
+            Place(assistBag, gameCatalog, "flag_ward_1");
+
+            ExpeditionSelection selection = ExpeditionSelectionRules.Evaluate(
+                scenario, actionBag.Items, assistBag.Items, combined, 30, 40);
+
+            Assert.IsTrue(selection.IsValid);
+            Assert.IsTrue(selection.IsItemUse);
+            Assert.IsTrue(selection.AssistsIgnored);
+            Assert.AreEqual(0, selection.AssistSpecs.Count);
+        }
+
         private static ExpeditionScenario Scenario()
         {
             return ExpeditionScenario.Generate(123, new DivePlan

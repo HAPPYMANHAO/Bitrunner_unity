@@ -27,6 +27,24 @@ namespace BitRunner.Core
             }
         }
 
+        public static int Consume(PlacedItem item, ItemDefinition definition, int amount)
+        {
+            int current = Current(item, definition);
+            if (current <= 0 || amount <= 0)
+            {
+                return current;
+            }
+
+            int next = current - amount;
+            if (next < 0)
+            {
+                next = 0;
+            }
+
+            item.Durability = next;
+            return next;
+        }
+
         public static void EnsureBag(BagInventory bag, ItemCatalog catalog)
         {
             if (bag == null || catalog == null)

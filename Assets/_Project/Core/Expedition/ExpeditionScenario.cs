@@ -179,6 +179,14 @@ namespace BitRunner.Core
 
         public ExpeditionResolution Resolve(string actionId, ExpeditionContext context)
         {
+            return Resolve(actionId, context, null);
+        }
+
+        public ExpeditionResolution Resolve(
+            string actionId,
+            ExpeditionContext context,
+            IReadOnlyList<AssistSpec> assists)
+        {
             if (IsComplete)
             {
                 return null;
@@ -190,7 +198,18 @@ namespace BitRunner.Core
                 return null;
             }
 
-            ExpeditionOutcomeEntry outcome = PickOutcome(action, context);
+            if (!action.IsExit)
+            {
+                int alertBonus = AssistAlertDelta(assists);
+                if (alertBonus != 0)
+                {
+                    Alert = Math.Max(0, Alert + alertBonus);
+                }
+
+                context.Alert = Alert;
+            }
+
+            ExpeditionOutcomeEntry outcome = PickOutcome(action, context, assists);
             if (outcome == null)
             {
                 return null;
@@ -367,7 +386,6 @@ namespace BitRunner.Core
             };
 
             int stage = Stage;
-            int alert = Alert;
             int damage = _hazardDamage + stage * 2;
 
             if (template.Id == "scan" || template.Id == "decode" || template.Id == "track" || template.Id == "listen"
@@ -408,18 +426,6 @@ namespace BitRunner.Core
                 Add(action, ExpeditionOutcomeKind.Nothing, 30, "你绕了一圈，没有找到更好的入口。", 0);
                 Add(action, ExpeditionOutcomeKind.Combat, 20, "你绕进了另一个人的视线。", 1);
                 Add(action, ExpeditionOutcomeKind.Damage, 18, "脚下的结构塌了一块。", 0);
-            }
-
-            if (alert >= 2)
-            {
-                for (int i = 0; i < action.Outcomes.Count; i++)
-                {
-                    ExpeditionOutcomeEntry outcome = action.Outcomes[i];
-                    if (outcome.Kind == ExpeditionOutcomeKind.Combat)
-                    {
-                        outcome.Weight += 8;
-                    }
-                }
             }
 
             return action;
@@ -471,55 +477,31 @@ namespace BitRunner.Core
             action.Outcomes.Add(entry);
         }
 
-        private ExpeditionOutcomeEntry PickOutcome(ExpeditionActionOption action, ExpeditionContext context)
+        private ExpeditionOutcomeEntry PickOutcome(
+            ExpeditionActionOption action,
+            ExpeditionContext context,
+            IReadOnlyList<AssistSpec> assists)
         {
-            int total = 0;
-            for (int i = 0; i < action.Outcomes.Count; i++)
-            {
-                ExpeditionOutcomeEntry entry = action.Outcomes[i];
-                total += AdjustedWeight(entry, context);
-            }
-
-            if (total <= 0)
-            {
-                return action.Outcomes.Count > 0 ? action.Outcomes[0] : null;
-            }
-
-            int roll = _random.Next(total);
-            for (int i = 0; i < action.Outcomes.Count; i++)
-            {
-                ExpeditionOutcomeEntry entry = action.Outcomes[i];
-                int weight = AdjustedWeight(entry, context);
-                if (roll < weight)
-                {
-                    return entry;
-                }
-
-                roll -= weight;
-            }
-
-            return action.Outcomes[action.Outcomes.Count - 1];
+            return ExpeditionOdds.Pick(action, context, assists, _random);
         }
 
-        private static int AdjustedWeight(ExpeditionOutcomeEntry entry, ExpeditionContext context)
+        private static int AssistAlertDelta(IReadOnlyList<AssistSpec> assists)
         {
-            int weight = Math.Max(1, entry.Weight);
-            if (entry.Kind == ExpeditionOutcomeKind.Combat && context.Alert >= 2)
+            if (assists == null)
             {
-                weight += 6;
+                return 0;
             }
 
-            if (entry.Kind == ExpeditionOutcomeKind.Damage && context.Hp <= 15)
+            int total = 0;
+            for (int i = 0; i < assists.Count; i++)
             {
-                weight += 5;
+                if (assists[i] != null)
+                {
+                    total += assists[i].AlertDelta;
+                }
             }
 
-            if (entry.Kind == ExpeditionOutcomeKind.Loot && context.BagFree <= 2)
-            {
-                weight -= 4;
-            }
-
-            return Math.Max(1, weight);
+            return total;
         }
 
         private string[] PickLoot(int count)
