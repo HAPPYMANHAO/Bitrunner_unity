@@ -254,7 +254,13 @@ namespace BitRunner.Game
                 return;
             }
 
+            ItemShape before = _item.BaseShape.Rotate(_rotation);
             _rotation = (_rotation + 1) % 4;
+            ItemShape after = _item.BaseShape.Rotate(_rotation);
+            Cell moved = before.RotateOffsetClockwise(_grabOffset);
+            _grabOffset = new Cell(
+                Mathf.Clamp(moved.X, 0, after.Width - 1),
+                Mathf.Clamp(moved.Y, 0, after.Height - 1));
             UpdateDrag(screen);
         }
 
@@ -585,9 +591,13 @@ namespace BitRunner.Game
             _floatImage.color = new Color(1f, 1f, 1f, 0.72f);
             _floatRect.sizeDelta = new Vector2(shape.Width * BagView.CellSize, shape.Height * BagView.CellSize);
 
+            Vector2 grabOffsetPixels = new Vector2(
+                (shape.Width * 0.5f - _grabOffset.X - 0.5f) * BagView.CellSize,
+                (_grabOffset.Y + 0.5f - shape.Height * 0.5f) * BagView.CellSize);
+
             Vector2 local;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRect, screen, null, out local);
-            _floatRect.anchoredPosition = local;
+            _floatRect.anchoredPosition = local + grabOffsetPixels;
             _floatRect.gameObject.SetActive(true);
         }
 

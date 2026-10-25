@@ -83,6 +83,21 @@ namespace BitRunner.Tests
         }
 
         [Test]
+        public void RotateOffsetClockwise_RemapsGrabPointWithShape()
+        {
+            ItemShape vertical = ItemShape.Parse("#", "#", "#", "#");
+            ItemShape horizontal = vertical.RotateClockwise();
+
+            Cell topGrab = vertical.RotateOffsetClockwise(new Cell(0, 0));
+            Assert.AreEqual(new Cell(3, 0), topGrab);
+            Assert.IsTrue(horizontal.Contains(topGrab), "抓取点应跟随形状旋转到新形状内");
+
+            Cell bottomGrab = vertical.RotateOffsetClockwise(new Cell(0, 3));
+            Assert.AreEqual(new Cell(0, 0), bottomGrab);
+            Assert.IsTrue(horizontal.Contains(bottomGrab));
+        }
+
+        [Test]
         public void Parse_NormalizesNegativeOffsets()
         {
             var shape = new ItemShape(new[]

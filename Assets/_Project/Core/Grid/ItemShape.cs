@@ -94,6 +94,15 @@ namespace BitRunner.Core
             return new ItemShape(rotated);
         }
 
+        /// <summary>
+        /// 形状内的一点随形状顺时针旋转 90°，与 RotateClockwise 使用同一映射。
+        /// 拖拽旋转时用它重算抓取偏移，保证抓取格始终留在光标下。
+        /// </summary>
+        public Cell RotateOffsetClockwise(Cell offset)
+        {
+            return new Cell(_height - 1 - offset.Y, offset.X);
+        }
+
         public string ToPattern()
         {
             var builder = new StringBuilder();
