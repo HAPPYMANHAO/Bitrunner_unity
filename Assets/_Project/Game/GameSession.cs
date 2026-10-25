@@ -573,6 +573,25 @@ namespace BitRunner.Game
             LastMessage = "敌人已清除" + healText + "。继续寻找撤离路线。";
         }
 
+        /// <summary>
+        /// 战斗没打完就离开：玩家没武器主动撤离，或敌人无武器逃跑。
+        /// 背包与当前生命保留，但不加战后回复、不算清场、不记击杀。
+        /// </summary>
+        public static void RetreatEncounter(int hp, bool enemyFled)
+        {
+            HasPendingEncounter = false;
+            PendingEnemyId = null;
+
+            if (hp > 0)
+            {
+                ExpeditionHp = Mathf.Clamp(hp, 1, ExpeditionMaxHp);
+            }
+
+            LastMessage = enemyFled
+                ? "敌人逃离了战斗。继续寻找撤离路线。"
+                : "你脱离了战斗。继续寻找撤离路线。";
+        }
+
         public static void CompleteExpedition(bool survived)
         {
             if (Campaign == null || !Campaign.ExpeditionOpen)

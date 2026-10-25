@@ -28,6 +28,7 @@ namespace BitRunner.Game
         private static readonly Color DisabledColor = new Color32(44, 48, 56, 255);
         private static readonly Color HpColor = new Color32(111, 191, 115, 255);
         private static readonly Color EnemyHpColor = new Color32(200, 96, 96, 255);
+        private static readonly Color RetreatColor = new Color32(122, 74, 44, 255);
 
         private ItemCatalog _catalog;
         private CombatEngine _engine;
@@ -65,6 +66,8 @@ namespace BitRunner.Game
         private RectTransform _endTurnRect;
         private RectTransform _lootAllRect;
         private Text _lootAllText;
+        private RectTransform _retreatRect;
+        private Text _retreatText;
 
         private GameObject _tooltipPanel;
         private RectTransform _tooltipRect;
@@ -150,6 +153,24 @@ namespace BitRunner.Game
 
             if (mouse.leftButton.wasPressedThisFrame)
             {
+                if (_retreatRect != null
+                    && _retreatRect.gameObject.activeSelf
+                    && RectTransformUtility.RectangleContainsScreenPoint(_retreatRect, screen, null))
+                {
+                    string retreatError;
+                    if (_engine.TryRetreat(out retreatError))
+                    {
+                        SetMessage("你撤离了战斗。");
+                        RefreshAll();
+                    }
+                    else
+                    {
+                        SetMessage(retreatError);
+                    }
+
+                    return;
+                }
+
                 if (_endTurnRect != null
                     && _engine.Phase == CombatPhase.PlayerTurn
                     && RectTransformUtility.RectangleContainsScreenPoint(_endTurnRect, screen, null))
@@ -162,7 +183,7 @@ namespace BitRunner.Game
 
                 for (int i = 0; i < _enemyPanels.Count; i++)
                 {
-                    if (_enemies[i].IsAlive
+                    if (_enemies[i].IsAlive && !_enemies[i].HasFled
                         && RectTransformUtility.RectangleContainsScreenPoint(_enemyPanels[i], screen, null))
                     {
                         _selectedEnemy = i;
@@ -262,6 +283,7 @@ namespace BitRunner.Game
 
             BuildStatusPanel(canvas);
             BuildLootButton(canvas);
+            BuildRetreatButton(canvas);
             BuildLogPanel(canvas);
             BuildTooltip(canvas);
             BuildEndOverlay(canvas);
@@ -325,6 +347,13 @@ namespace BitRunner.Game
             _lootAllRect = CreateCenteredPanel(canvas, "LootAll", new Vector2(0f, -160f), new Vector2(150f, 26f), AccentColor);
             _lootAllText = CreateCenteredText(_lootAllRect, "Label", "搜刮全部", 11, TextColor, Vector2.zero, new Vector2(146f, 24f));
             _lootAllRect.gameObject.SetActive(false);
+        }
+
+        private void BuildRetreatButton(Transform canvas)
+        {
+            _retreatRect = CreateCenteredPanel(canvas, "Retreat", new Vector2(0f, -160f), new Vector2(150f, 26f), RetreatColor);
+            _retreatText = CreateCenteredText(_retreatRect, "Label", "撤离", 11, TextColor, Vector2.zero, new Vector2(146f, 24f));
+            _retreatRect.gameObject.SetActive(false);
         }
 
         private void BuildLogPanel(Transform canvas)
@@ -399,7 +428,7 @@ namespace BitRunner.Game
 
         private bool IsEnemyItemAvailable(CombatActor enemy, PlacedItem item)
         {
-            if (_engine == null || enemy == null || item == null || !enemy.IsAlive)
+            if (_engine == null || enemy == null || item == null || !enemy.IsAlive || enemy.HasFled)
             {
                 return false;
             }
@@ -470,6 +499,7 @@ namespace BitRunner.Game
             UpdateEnemyHud();
             UpdateLog();
             UpdateEndTurnButton();
+            UpdateRetreatButton();
             CheckEnd();
         }
 
@@ -500,9 +530,13 @@ namespace BitRunner.Game
                 _enemyApTexts[i].text = "能量 " + MaxEnergy(enemy)
                                         + "   护盾 " + enemy.Shield
                                         + StatusSuffix(enemy);
-                _enemyIntentTexts[i].text = enemy.IsAlive ? IntentFor(enemy) : "已倒下";
+                _enemyIntentTexts[i].text = !enemy.IsAlive
+                    ? "已倒下"
+                    : (enemy.HasFled ? "已逃离" : IntentFor(enemy));
                 _enemyArmorTexts[i].text = ReductionLine(enemy);
-                _enemyPanelImages[i].color = i == _selectedEnemy && enemy.IsAlive ? PanelSelectedColor : PanelColor;
+                _enemyPanelImages[i].color = i == _selectedEnemy && enemy.IsAlive && !enemy.HasFled
+                    ? PanelSelectedColor
+                    : PanelColor;
             }
         }
 
@@ -532,6 +566,20 @@ namespace BitRunner.Game
                 _endTurnText.text = GameSession.ExpeditionActive && GameSession.Scenario != null
                     ? "返回地点"
                     : "离开";
+                return;
+            }
+
+            if (_engine.Phase == CombatPhase.PlayerRetreat)
+            {
+                _endTurnImage.color = DisabledColor;
+                _endTurnText.text = "已撤离";
+                return;
+            }
+
+            if (_engine.Phase == CombatPhase.EnemyFled)
+            {
+                _endTurnImage.color = DisabledColor;
+                _endTurnText.text = "敌人已逃离";
                 return;
             }
 
@@ -568,6 +616,20 @@ namespace BitRunner.Game
             _endTurnText.text = playerTurn ? "结束回合" : "敌方回合";
         }
 
+        private void UpdateRetreatButton()
+        {
+            if (_retreatRect == null)
+            {
+                return;
+            }
+
+            bool show = !_lootPhase
+                        && !_ended
+                        && _engine.Phase == CombatPhase.PlayerTurn
+                        && !_engine.CanPlayerAttack;
+            _retreatRect.gameObject.SetActive(show);
+        }
+
         private void CheckEnd()
         {
             if (!_engine.IsFinished || _ended)
@@ -583,6 +645,17 @@ namespace BitRunner.Game
                 return;
             }
 
+            if (_engine.Phase == CombatPhase.PlayerRetreat || _engine.Phase == CombatPhase.EnemyFled)
+            {
+                EndRetreat(_engine.Phase == CombatPhase.EnemyFled);
+                return;
+            }
+
+            if (_retreatRect != null)
+            {
+                _retreatRect.gameObject.SetActive(false);
+            }
+
             GameSession.CompleteExpedition(false);
             _ended = true;
             _endOverlay.SetActive(true);
@@ -590,11 +663,38 @@ namespace BitRunner.Game
             _endSubtitle.text = "背包已丢失。\n点击返回基地。";
         }
 
+        private void EndRetreat(bool enemyFled)
+        {
+            _ended = true;
+            if (_retreatRect != null)
+            {
+                _retreatRect.gameObject.SetActive(false);
+            }
+
+            if (GameSession.ExpeditionActive && GameSession.Scenario != null)
+            {
+                GameSession.RetreatEncounter(_player.Hp, enemyFled);
+                SceneManager.LoadScene("ExpeditionPrototype");
+                return;
+            }
+
+            GameSession.CompleteExpedition(true);
+            _endOverlay.SetActive(true);
+            _endTitle.text = enemyFled ? "敌人已逃离" : "已撤离";
+            _endSubtitle.text = enemyFled
+                ? "敌人逃走了，没有战利品。\n点击返回基地。"
+                : "你脱离了战斗，背包保留。\n点击返回基地。";
+        }
+
         private void BeginLoot()
         {
             _lootPhase = true;
             _takenValue = 0;
             _tooltipPanel.SetActive(false);
+            if (_retreatRect != null)
+            {
+                _retreatRect.gameObject.SetActive(false);
+            }
             _lootInteraction.enabled = true;
             if (_lootAllRect != null)
             {
@@ -795,6 +895,11 @@ namespace BitRunner.Game
 
         private string IntentFor(CombatActor enemy)
         {
+            if (!_engine.CanActorAttack(enemy) && !_engine.CanPlayerAttack)
+            {
+                return "下一步：想逃";
+            }
+
             EnemyBrain brain = enemy.Brain as EnemyBrain;
             if (brain == null)
             {
@@ -890,14 +995,15 @@ namespace BitRunner.Game
 
         private CombatActor CurrentTarget()
         {
-            if (_selectedEnemy >= 0 && _selectedEnemy < _enemies.Count && _enemies[_selectedEnemy].IsAlive)
+            if (_selectedEnemy >= 0 && _selectedEnemy < _enemies.Count
+                && _enemies[_selectedEnemy].IsAlive && !_enemies[_selectedEnemy].HasFled)
             {
                 return _enemies[_selectedEnemy];
             }
 
             for (int i = 0; i < _enemies.Count; i++)
             {
-                if (_enemies[i].IsAlive)
+                if (_enemies[i].IsAlive && !_enemies[i].HasFled)
                 {
                     return _enemies[i];
                 }
@@ -908,14 +1014,15 @@ namespace BitRunner.Game
 
         private void EnsureSelection()
         {
-            if (_selectedEnemy >= 0 && _selectedEnemy < _enemies.Count && _enemies[_selectedEnemy].IsAlive)
+            if (_selectedEnemy >= 0 && _selectedEnemy < _enemies.Count
+                && _enemies[_selectedEnemy].IsAlive && !_enemies[_selectedEnemy].HasFled)
             {
                 return;
             }
 
             for (int i = 0; i < _enemies.Count; i++)
             {
-                if (_enemies[i].IsAlive)
+                if (_enemies[i].IsAlive && !_enemies[i].HasFled)
                 {
                     _selectedEnemy = i;
                     return;

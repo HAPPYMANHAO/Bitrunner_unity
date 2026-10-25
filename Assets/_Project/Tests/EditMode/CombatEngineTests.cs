@@ -98,6 +98,141 @@ namespace BitRunner.Tests
         }
 
         [Test]
+        public void PlayerWithoutWeaponCanRetreat()
+        {
+            ItemCatalog catalog = CombatTestFactory.Catalog(
+                CombatTestFactory.Armor("vest", 1, 1, 1, 1, 1, "#"));
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 4, 3, catalog, "vest");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
+            enemy.Brain = new EnemyBrain();
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+            engine.Start();
+
+            Assert.IsFalse(engine.CanPlayerAttack);
+
+            string error;
+            Assert.IsTrue(engine.TryRetreat(out error), error);
+            Assert.AreEqual(CombatPhase.PlayerRetreat, engine.Phase);
+            Assert.IsTrue(engine.IsFinished);
+            Assert.IsTrue(HasEvent(engine, CombatEventType.CombatEnded, null));
+        }
+
+        [Test]
+        public void ArmedPlayerCannotRetreat()
+        {
+            ItemCatalog catalog = CombatTestFactory.Catalog(
+                CombatTestFactory.Weapon("blade", 5, 1, 0, ItemTag.Blade, "##"));
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "blade");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
+            enemy.Brain = new EnemyBrain();
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+            engine.Start();
+
+            Assert.IsTrue(engine.CanPlayerAttack);
+
+            string error;
+            Assert.IsFalse(engine.TryRetreat(out error));
+            Assert.IsNotNull(error);
+            Assert.AreEqual(CombatPhase.PlayerTurn, engine.Phase);
+        }
+
+        [Test]
+        public void WeaponWithoutAmmoIsNotAnAttackOption()
+        {
+            ItemDefinition gunDefinition = CombatTestFactory.Weapon("gun", 5, 1, 0, ItemTag.Projectile, "##");
+            gunDefinition.AmmoItemId = "ammo";
+            ItemCatalog catalog = CombatTestFactory.Catalog(gunDefinition);
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "gun");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog);
+            enemy.Brain = new EnemyBrain();
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+            engine.Start();
+
+            Assert.IsFalse(engine.CanPlayerAttack);
+
+            string error;
+            Assert.IsTrue(engine.TryRetreat(out error), error);
+            Assert.AreEqual(CombatPhase.PlayerRetreat, engine.Phase);
+        }
+
+        [Test]
+        public void BothSidesWithoutWeapons_EnemyFleesInsteadOfDeadlock()
+        {
+            ItemCatalog catalog = CombatTestFactory.Catalog(
+                CombatTestFactory.Armor("vest", 1, 1, 1, 1, 1, "#"));
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "vest");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "vest");
+            enemy.Brain = new EnemyBrain();
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+            engine.Start();
+            Assert.IsFalse(engine.CanPlayerAttack);
+            Assert.IsFalse(engine.CanActorAttack(enemy));
+
+            engine.EndTurn();
+            Assert.IsFalse(enemy.HasFled, "僵持还不到 3 回合，敌人先不走");
+            Assert.AreEqual(CombatPhase.PlayerTurn, engine.Phase);
+
+            engine.EndTurn();
+            Assert.IsFalse(enemy.HasFled);
+
+            engine.EndTurn();
+            Assert.IsTrue(enemy.HasFled);
+            Assert.AreEqual(CombatPhase.EnemyFled, engine.Phase);
+            Assert.IsTrue(HasEvent(engine, CombatEventType.ActorFled, null));
+            Assert.IsTrue(engine.IsFinished);
+        }
+
+        [Test]
+        public void WeaponlessEnemyStaysWhilePlayerCanAttack()
+        {
+            ItemCatalog catalog = CombatTestFactory.Catalog(
+                CombatTestFactory.Weapon("blade", 5, 1, 0, ItemTag.Blade, "##"),
+                CombatTestFactory.Armor("vest", 1, 1, 1, 1, 1, "#"));
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "blade");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "vest");
+            enemy.Brain = new EnemyBrain();
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+            engine.Start();
+            Assert.IsTrue(engine.CanPlayerAttack);
+            Assert.IsFalse(engine.CanActorAttack(enemy));
+
+            engine.EndTurn();
+
+            Assert.IsFalse(enemy.HasFled);
+            Assert.AreEqual(CombatPhase.PlayerTurn, engine.Phase);
+        }
+
+        [Test]
+        public void EnemyWithWeaponDoesNotFlee()
+        {
+            ItemCatalog catalog = CombatTestFactory.Catalog(
+                CombatTestFactory.Weapon("blade", 3, 1, 0, ItemTag.Blade, "##"));
+
+            CombatActor player = CombatTestFactory.Actor("player", 30, 3, 6, 5, catalog, "blade");
+            CombatActor enemy = CombatTestFactory.Actor("enemy", 20, 3, 4, 3, catalog, "blade");
+            enemy.Brain = new EnemyBrain();
+
+            var engine = new CombatEngine(player, new[] { enemy }, catalog);
+            engine.Start();
+            Assert.IsTrue(engine.CanActorAttack(enemy));
+
+            engine.EndTurn();
+
+            Assert.IsFalse(enemy.HasFled);
+            Assert.AreEqual(CombatPhase.PlayerTurn, engine.Phase);
+        }
+
+        [Test]
         public void DurabilitySurvivesAcrossCombats()
         {
             ItemDefinition bladeDefinition = CombatTestFactory.Weapon("blade", 1, 1, 0, ItemTag.Blade, "##");

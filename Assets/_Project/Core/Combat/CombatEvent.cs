@@ -17,6 +17,7 @@ namespace BitRunner.Core
         DurabilityLost,
         ItemBroken,
         ActorDied,
+        ActorFled,
         CombatEnded
     }
 

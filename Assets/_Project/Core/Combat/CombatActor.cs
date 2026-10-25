@@ -81,6 +81,11 @@ namespace BitRunner.Core
 
         public bool IsPlayer { get; private set; }
 
+        /// <summary>
+        /// 敌人没有可用武器时会逃离战斗。逃离者仍然存活，但不再参与结算与战利品。
+        /// </summary>
+        public bool HasFled { get; internal set; }
+
         public ICombatBrain Brain { get; set; }
 
         public bool IsAlive
@@ -289,6 +294,7 @@ namespace BitRunner.Core
             Hp = MaxHp;
             Energy = BaseEnergy;
             Shield = 0;
+            HasFled = false;
             _cooldowns.Clear();
             _usedThisTurn.Clear();
             _statuses.Clear();

@@ -12,6 +12,11 @@ namespace BitRunner.Core
         private readonly List<CombatEvent> _events = new List<CombatEvent>();
         private CombatActor _activeEnemy;
 
+        /// <summary>双方都打不出伤害时，僵持多少回合后敌人自动逃离（玩家随时可以主动撤离）。</summary>
+        private const int StalemateRoundsBeforeFlee = 3;
+
+        private int _stalemateRounds;
+
         public CombatEngine(CombatActor player, IEnumerable<CombatActor> enemies, ItemCatalog catalog)
             : this(player, enemies, catalog, SynergyResolver.DefaultRules)
         {
@@ -80,7 +85,135 @@ namespace BitRunner.Core
 
         public bool IsFinished
         {
-            get { return Phase == CombatPhase.Victory || Phase == CombatPhase.Defeat; }
+            get
+            {
+                return Phase == CombatPhase.Victory
+                       || Phase == CombatPhase.Defeat
+                       || Phase == CombatPhase.PlayerRetreat
+                       || Phase == CombatPhase.EnemyFled;
+            }
+        }
+
+        /// <summary>
+        /// 双方都没有攻击手段时，僵持若干回合后让敌人逃离，避免无限空转。
+        /// 玩家有撤退按钮，所以这里只负责给敌人一个体面的退场。
+        /// </summary>
+        private void TickStalemate()
+        {
+            if (CanPlayerAttack)
+            {
+                _stalemateRounds = 0;
+                return;
+            }
+
+            bool anyEnemyCanAttack = false;
+            for (int i = 0; i < _enemies.Count; i++)
+            {
+                CombatActor enemy = _enemies[i];
+                if (enemy.IsAlive && !enemy.HasFled && CanActorAttack(enemy))
+                {
+                    anyEnemyCanAttack = true;
+                    break;
+                }
+            }
+
+            if (anyEnemyCanAttack)
+            {
+                _stalemateRounds = 0;
+                return;
+            }
+
+            _stalemateRounds++;
+            if (_stalemateRounds < StalemateRoundsBeforeFlee)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _enemies.Count; i++)
+            {
+                CombatActor enemy = _enemies[i];
+                if (!enemy.IsAlive || enemy.HasFled)
+                {
+                    continue;
+                }
+
+                enemy.HasFled = true;
+                Emit(
+                    CombatEventType.ActorFled,
+                    enemy.Id,
+                    null,
+                    null,
+                    0,
+                    0,
+                    enemy.DisplayName + " 已经没有可用的武器，逃离了战斗");
+            }
+        }
+
+        /// <summary>玩家当前是否还有能造成伤害的武器（含弹药检查）。</summary>
+        public bool CanPlayerAttack
+        {
+            get { return CanActorAttack(Player); }
+        }
+
+        /// <summary>
+        /// 判断角色是否还有可用武器。武器耐久耗尽后会被移出背包，
+        /// 所以「没有武器」= 再也打不出伤害，双方都无武器时战斗会死锁。
+        /// </summary>
+        public bool CanActorAttack(CombatActor actor)
+        {
+            if (actor == null || !actor.IsAlive || actor.HasFled)
+            {
+                return false;
+            }
+
+            IReadOnlyList<PlacedItem> items = actor.Bag.Items;
+            for (int i = 0; i < items.Count; i++)
+            {
+                PlacedItem item = items[i];
+                ItemDefinition definition = GetDefinition(item);
+                if (definition == null || definition.Category != ItemCategory.Weapon || definition.Damage <= 0)
+                {
+                    continue;
+                }
+
+                if (definition.UsesAmmo && actor.Bag.CountOf(definition.AmmoItemId) < definition.AmmoPerUse)
+                {
+                    continue;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 玩家撤离（只在没有任何攻击手段时开放）。撤离结束战斗但不判负：
+        /// 背包与生命保留，敌人身上的战利品拿不到。
+        /// </summary>
+        public bool TryRetreat(out string error)
+        {
+            if (IsFinished)
+            {
+                error = "战斗已结束。";
+                return false;
+            }
+
+            if (Phase != CombatPhase.PlayerTurn)
+            {
+                error = "现在不能撤离。";
+                return false;
+            }
+
+            if (CanPlayerAttack)
+            {
+                error = "仍有可用武器，无法撤离。";
+                return false;
+            }
+
+            EndCombat(CombatPhase.PlayerRetreat);
+            error = null;
+            return true;
         }
 
         public ItemCatalog Catalog
@@ -96,6 +229,7 @@ namespace BitRunner.Core
             }
 
             Round = 1;
+            _stalemateRounds = 0;
             Phase = CombatPhase.PlayerTurn;
             Emit(CombatEventType.CombatStarted, Player.Id, null, null, 0, 0, "战斗开始");
             StartActorTurn(Player);
@@ -114,12 +248,18 @@ namespace BitRunner.Core
                 return;
             }
 
+            TickStalemate();
+            if (IsFinished || CheckVictory())
+            {
+                return;
+            }
+
             Phase = CombatPhase.EnemyTurn;
 
             for (int i = 0; i < _enemies.Count; i++)
             {
                 CombatActor enemy = _enemies[i];
-                if (!enemy.IsAlive)
+                if (!enemy.IsAlive || enemy.HasFled)
                 {
                     continue;
                 }
@@ -952,15 +1092,26 @@ namespace BitRunner.Core
 
         private bool CheckVictory()
         {
+            bool anyFled = false;
             for (int i = 0; i < _enemies.Count; i++)
             {
-                if (_enemies[i].IsAlive)
+                CombatActor enemy = _enemies[i];
+                if (!enemy.IsAlive)
                 {
-                    return false;
+                    continue;
                 }
+
+                if (enemy.HasFled)
+                {
+                    anyFled = true;
+                    continue;
+                }
+
+                return false;
             }
 
-            EndCombat(CombatPhase.Victory);
+            // 还有活着的敌人但全都跑了：这不算胜利，拿不到战利品，也不记击杀。
+            EndCombat(anyFled ? CombatPhase.EnemyFled : CombatPhase.Victory);
             return true;
         }
 
@@ -972,7 +1123,22 @@ namespace BitRunner.Core
             }
 
             Phase = phase;
-            Emit(CombatEventType.CombatEnded, Player.Id, null, null, 0, 0, phase == CombatPhase.Victory ? "胜利" : "失败");
+            Emit(CombatEventType.CombatEnded, Player.Id, null, null, 0, 0, EndMessage(phase));
+        }
+
+        private static string EndMessage(CombatPhase phase)
+        {
+            switch (phase)
+            {
+                case CombatPhase.Victory:
+                    return "胜利";
+                case CombatPhase.PlayerRetreat:
+                    return "你撤离了战斗";
+                case CombatPhase.EnemyFled:
+                    return "敌人逃离了战斗";
+                default:
+                    return "失败";
+            }
         }
 
         public SynergyBonus GetSynergyBonus(CombatActor actor, int instanceId)

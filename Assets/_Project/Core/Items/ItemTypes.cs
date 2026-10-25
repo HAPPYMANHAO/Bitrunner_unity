@@ -85,7 +85,9 @@ namespace BitRunner.Core
         PlayerTurn,
         EnemyTurn,
         Victory,
-        Defeat
+        Defeat,
+        PlayerRetreat,
+        EnemyFled
     }
 
     [Flags]
