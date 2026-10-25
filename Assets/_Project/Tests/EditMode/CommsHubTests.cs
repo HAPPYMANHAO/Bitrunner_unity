@@ -58,6 +58,32 @@ namespace BitRunner.Tests
         }
 
         [Test]
+        public void LinkCountsReflectUplinksAndLocks()
+        {
+            var catalog = DefaultItemLibrary.CreateCatalog();
+            var hub = new CommsHub();
+            NpcDefinition npc;
+            Assert.IsTrue(NpcLibrary.TryGet(NpcLibrary.Junk, out npc));
+            ItemDefinition uplink = catalog.Get(npc.UplinkItemId);
+
+            PlacedItem first;
+            Assert.IsTrue(hub.Grid.TryAdd(npc.UplinkItemId, uplink.Shape, out first));
+            PlacedItem second;
+            Assert.IsTrue(hub.Grid.TryAdd(npc.UplinkItemId, uplink.Shape, out second));
+
+            Assert.AreEqual(2, hub.TotalLinks);
+            Assert.AreEqual(2, hub.CountUplinks(NpcLibrary.Junk));
+            Assert.AreEqual(0, hub.CountLockedUplinks(NpcLibrary.Junk));
+            Assert.AreEqual(2, hub.FreeLinks);
+
+            string error;
+            Assert.IsTrue(hub.TryLockForQuest(NpcLibrary.Junk, "q_test", out error), error);
+            Assert.AreEqual(1, hub.LockedLinks);
+            Assert.AreEqual(1, hub.FreeLinks);
+            Assert.AreEqual(1, hub.CountLockedUplinks(NpcLibrary.Junk));
+        }
+
+        [Test]
         public void CommsHub_StartsSmall()
         {
             var hub = new CommsHub();

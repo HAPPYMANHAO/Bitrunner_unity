@@ -25,6 +25,8 @@ namespace BitRunner.Game
         private BagInventory _secureBag;
         private RectTransform _secureRect;
         private BagView _secureView;
+        private LootSource _playerSource;
+        private LootSource _secureSource;
         private bool _targetSecure;
         private ItemCatalog _catalog;
         private Dictionary<string, Color> _palette;
@@ -73,6 +75,8 @@ namespace BitRunner.Game
 
             _sources.Clear();
             _sources.AddRange(sources);
+            _playerSource = new LootSource { Bag = playerBag, Rect = playerRect, View = playerView };
+            _secureSource = new LootSource { Bag = secureBag, Rect = secureRect, View = secureView };
 
             var go = new GameObject("LootDragGhost", typeof(RectTransform), typeof(Image));
             go.transform.SetParent(canvasRect, false);
@@ -164,40 +168,58 @@ namespace BitRunner.Game
         {
             for (int i = 0; i < _sources.Count; i++)
             {
-                LootSource source = _sources[i];
-
-                Cell cell;
-                if (!TryScreenToCell(source.Rect, source.Bag, screen, out cell))
+                if (TryBeginDragFrom(_sources[i], screen))
                 {
-                    continue;
+                    return;
                 }
+            }
 
-                int instanceId = source.Bag.Grid.GetOccupant(cell.X, cell.Y);
-                if (instanceId == 0)
-                {
-                    continue;
-                }
-
-                PlacedItem item;
-                if (!source.Bag.TryGet(instanceId, out item))
-                {
-                    continue;
-                }
-
-                _dragging = true;
-                _source = source;
-                _item = item;
-                _rotation = item.Rotation;
-                _grabOffset = new Cell(cell.X - item.Origin.X, cell.Y - item.Origin.Y);
-                _target = item.Origin;
-                _validTarget = false;
-                _pressScreen = screen;
-                _clickCandidate = true;
-
-                source.View.SetItemAlpha(instanceId, 0.2f);
-                ShowFloating(screen);
+            if (TryBeginDragFrom(_playerSource, screen))
+            {
                 return;
             }
+
+            TryBeginDragFrom(_secureSource, screen);
+        }
+
+        private bool TryBeginDragFrom(LootSource source, Vector2 screen)
+        {
+            if (source == null || source.Bag == null || source.Rect == null)
+            {
+                return false;
+            }
+
+            Cell cell;
+            if (!TryScreenToCell(source.Rect, source.Bag, screen, out cell))
+            {
+                return false;
+            }
+
+            int instanceId = source.Bag.Grid.GetOccupant(cell.X, cell.Y);
+            if (instanceId == 0)
+            {
+                return false;
+            }
+
+            PlacedItem item;
+            if (!source.Bag.TryGet(instanceId, out item))
+            {
+                return false;
+            }
+
+            _dragging = true;
+            _source = source;
+            _item = item;
+            _rotation = item.Rotation;
+            _grabOffset = new Cell(cell.X - item.Origin.X, cell.Y - item.Origin.Y);
+            _target = item.Origin;
+            _validTarget = false;
+            _pressScreen = screen;
+            _clickCandidate = true;
+
+            source.View.SetItemAlpha(instanceId, 0.2f);
+            ShowFloating(screen);
+            return true;
         }
 
         private void UpdateDrag(Vector2 screen)
@@ -215,9 +237,10 @@ namespace BitRunner.Game
                 _target = new Cell(cell.X - _grabOffset.X, cell.Y - _grabOffset.Y);
                 ItemShape shape = _item.BaseShape.Rotate(_rotation);
                 ItemDefinition definition = _catalog.Get(_item.DefinitionId);
+                bool sameBag = _source == _playerSource;
                 bool canPlace = _playerBag.Grid.CanPlace(shape, _target);
                 bool canStack = _playerBag.CanStackAt(_item.DefinitionId, _item.BaseShape, _target, _rotation, _item.Count, definition.MaxStack);
-                _validTarget = canPlace || canStack;
+                _validTarget = !sameBag && (canPlace || canStack);
                 _secureView.HideGhost();
                 _playerView.ShowGhost(shape, _target, _validTarget);
                 _floatRect.gameObject.SetActive(false);
@@ -230,7 +253,8 @@ namespace BitRunner.Game
                 _target = new Cell(cell.X - _grabOffset.X, cell.Y - _grabOffset.Y);
                 ItemShape shape = _item.BaseShape.Rotate(_rotation);
                 ItemDefinition definition = _catalog.Get(_item.DefinitionId);
-                bool eligible = SecureContainerRules.IsEligible(definition);
+                bool sameBag = _source == _secureSource;
+                bool eligible = !sameBag && SecureContainerRules.IsEligible(definition);
                 bool canPlace = _secureBag.Grid.CanPlace(shape, _target);
                 bool canStack = _secureBag.CanStackAt(_item.DefinitionId, _item.BaseShape, _target, _rotation, _item.Count, definition.MaxStack);
                 _validTarget = eligible && (canPlace || canStack);
@@ -499,7 +523,8 @@ namespace BitRunner.Game
                                   out placed,
                                   out error);
 
-                if (!stored && _targetSecure && SecureContainerRules.IsEligible(definition))
+                bool sourceIsLoot = _source != null && _source != _playerSource && _source != _secureSource;
+                if (!stored && _targetSecure && _source != _secureSource && SecureContainerRules.IsEligible(definition))
                 {
                     stored = _secureBag.TryAddOrStack(
                         definition.Id,
@@ -515,7 +540,7 @@ namespace BitRunner.Game
                 {
                     ItemTransfer.PreserveAll(_item, placed);
                     _source.Bag.Remove(_item.InstanceId);
-                    if (ItemTaken != null)
+                    if (sourceIsLoot && ItemTaken != null)
                     {
                         ItemTaken(definition.DisplayName, definition.Value);
                     }

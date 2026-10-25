@@ -462,7 +462,7 @@ namespace BitRunner.Core
                 entry.LootIds = PickLoot(_lootPerFind + (Stage > 0 ? 1 : 0));
                 if (entry.LootIds.Length > 0)
                 {
-                    entry.Text = text + " 找到 " + entry.LootIds.Length + " 件物资。";
+                    entry.Text = text + " 找到 " + entry.LootIds.Length + " 组物资。";
                 }
             }
             else if (kind == ExpeditionOutcomeKind.Combat)

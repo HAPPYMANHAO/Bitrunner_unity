@@ -776,7 +776,7 @@ namespace BitRunner.Game
                 _lootAllRect.gameObject.SetActive(true);
             }
 
-            SetMessage("把战利品收进背包。");
+            SetMessage("拖战利品到背包或保险箱；背包里的 1×1 物品也能放进保险箱。");
             _targetText.text = "已取 0  剩余 " + _player.Bag.FreeCellCount;
             UpdateEndTurnButton();
         }

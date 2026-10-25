@@ -173,6 +173,63 @@ namespace BitRunner.Core
             }
         }
 
+        public int TotalLinks
+        {
+            get { return Grid.Count; }
+        }
+
+        public int LockedLinks
+        {
+            get { return _locks.Count; }
+        }
+
+        public int FreeLinks
+        {
+            get { return Math.Max(0, Grid.Count - _locks.Count); }
+        }
+
+        public int CountUplinks(string npcId)
+        {
+            NpcDefinition npc;
+            if (!NpcLibrary.TryGet(npcId, out npc) || string.IsNullOrEmpty(npc.UplinkItemId))
+            {
+                return 0;
+            }
+
+            int count = 0;
+            IReadOnlyList<PlacedItem> items = Grid.Items;
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].DefinitionId == npc.UplinkItemId)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        public int CountLockedUplinks(string npcId)
+        {
+            NpcDefinition npc;
+            if (!NpcLibrary.TryGet(npcId, out npc) || string.IsNullOrEmpty(npc.UplinkItemId))
+            {
+                return 0;
+            }
+
+            int count = 0;
+            IReadOnlyList<PlacedItem> items = Grid.Items;
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].DefinitionId == npc.UplinkItemId && IsLocked(items[i].InstanceId))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
         public bool HasUplinkFor(string npcId)
         {
             PlacedItem item;

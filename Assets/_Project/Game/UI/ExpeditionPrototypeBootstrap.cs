@@ -745,7 +745,7 @@ namespace BitRunner.Game
                 ExpeditionOutcomeEntry sample = FirstOutcome(action, kind);
                 if (kind == ExpeditionOutcomeKind.Loot && sample != null && sample.LootIds != null)
                 {
-                    builder.Append(" · ").Append(sample.LootIds.Length).Append("件");
+                    builder.Append(" · ").Append(sample.LootIds.Length).Append("组");
                 }
                 else if (kind == ExpeditionOutcomeKind.Combat)
                 {
@@ -1419,6 +1419,7 @@ namespace BitRunner.Game
             }
 
             _lootBag = new BagInventory(4, 3);
+            var lootRandom = new System.Random((_scenario != null ? _scenario.Seed : 17) + lootIds.Length * 101);
             for (int i = 0; i < lootIds.Length; i++)
             {
                 ItemDefinition definition = _catalog.Get(lootIds[i]);
@@ -1427,8 +1428,13 @@ namespace BitRunner.Game
                     continue;
                 }
 
+                int count = LootStackRules.Roll(definition, lootRandom.Next());
                 PlacedItem placed;
-                _lootBag.TryAdd(lootIds[i], definition.Shape, out placed);
+                string error;
+                if (!_lootBag.TryAddOrStack(lootIds[i], definition.Shape, true, count, definition.MaxStack, out placed, out error))
+                {
+                    _lootBag.TryAdd(lootIds[i], definition.Shape, out placed);
+                }
             }
 
             _lootBoxRect = CreateBagRect(_lootBoxPanel, new Vector2(0f, -18f), new Vector2(4f * BagView.CellSize, 3f * BagView.CellSize));
