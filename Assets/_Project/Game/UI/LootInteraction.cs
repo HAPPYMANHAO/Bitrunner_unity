@@ -238,9 +238,10 @@ namespace BitRunner.Game
                 ItemShape shape = _item.BaseShape.Rotate(_rotation);
                 ItemDefinition definition = _catalog.Get(_item.DefinitionId);
                 bool sameBag = _source == _playerSource;
-                bool canPlace = _playerBag.Grid.CanPlace(shape, _target);
-                bool canStack = _playerBag.CanStackAt(_item.DefinitionId, _item.BaseShape, _target, _rotation, _item.Count, definition.MaxStack);
-                _validTarget = !sameBag && (canPlace || canStack);
+                int ignoreId = sameBag ? _item.InstanceId : 0;
+                bool canPlace = _playerBag.Grid.CanPlace(shape, _target, ignoreId);
+                bool canStack = !sameBag && _playerBag.CanStackAt(_item.DefinitionId, _item.BaseShape, _target, _rotation, _item.Count, definition.MaxStack);
+                _validTarget = canPlace || canStack;
                 _secureView.HideGhost();
                 _playerView.ShowGhost(shape, _target, _validTarget);
                 _floatRect.gameObject.SetActive(false);
@@ -254,9 +255,10 @@ namespace BitRunner.Game
                 ItemShape shape = _item.BaseShape.Rotate(_rotation);
                 ItemDefinition definition = _catalog.Get(_item.DefinitionId);
                 bool sameBag = _source == _secureSource;
-                bool eligible = !sameBag && SecureContainerRules.IsEligible(definition);
-                bool canPlace = _secureBag.Grid.CanPlace(shape, _target);
-                bool canStack = _secureBag.CanStackAt(_item.DefinitionId, _item.BaseShape, _target, _rotation, _item.Count, definition.MaxStack);
+                bool eligible = SecureContainerRules.IsEligible(definition);
+                int ignoreId = sameBag ? _item.InstanceId : 0;
+                bool canPlace = _secureBag.Grid.CanPlace(shape, _target, ignoreId);
+                bool canStack = !sameBag && _secureBag.CanStackAt(_item.DefinitionId, _item.BaseShape, _target, _rotation, _item.Count, definition.MaxStack);
                 _validTarget = eligible && (canPlace || canStack);
                 _playerView.HideGhost();
                 _secureView.ShowGhost(shape, _target, _validTarget);
@@ -341,6 +343,16 @@ namespace BitRunner.Game
                 {
                     return source;
                 }
+            }
+
+            if (TryScreenToCell(_playerRect, _playerBag, screen, out cell))
+            {
+                return _playerSource;
+            }
+
+            if (_secureBag != null && TryScreenToCell(_secureRect, _secureBag, screen, out cell))
+            {
+                return _secureSource;
             }
 
             cell = Cell.Zero;
@@ -510,46 +522,61 @@ namespace BitRunner.Game
             {
                 BagInventory targetBag = _targetSecure ? _secureBag : _playerBag;
                 PlacedItem placed = null;
-                string error;
+                string error = null;
                 ItemDefinition definition = _catalog.Get(_item.DefinitionId);
-                bool stored = _validTarget
-                              && targetBag.TryStackAt(
-                                  _item.DefinitionId,
-                                  _item.BaseShape,
-                                  _target,
-                                  _rotation,
-                                  _item.Count,
-                                  definition.MaxStack,
-                                  out placed,
-                                  out error);
-
                 bool sourceIsLoot = _source != null && _source != _playerSource && _source != _secureSource;
-                if (!stored && _targetSecure && _source != _secureSource && SecureContainerRules.IsEligible(definition))
-                {
-                    stored = _secureBag.TryAddOrStack(
-                        definition.Id,
-                        _item.BaseShape,
-                        _item.Rotatable,
-                        _item.Count,
-                        definition.MaxStack,
-                        out placed,
-                        out error);
-                }
+                bool sameBagMove = _source != null && _source.Bag == targetBag;
 
-                if (stored)
+                bool stored;
+                if (sameBagMove)
                 {
-                    ItemTransfer.PreserveAll(_item, placed);
-                    _source.Bag.Remove(_item.InstanceId);
-                    if (sourceIsLoot && ItemTaken != null)
+                    // 同包移动/旋转：TryTransform 会忽略物品自身占用的格子。
+                    stored = _validTarget && targetBag.TryTransform(_item.InstanceId, _target, _rotation, out error);
+                    if (!stored && !string.IsNullOrEmpty(error) && Message != null)
                     {
-                        ItemTaken(definition.DisplayName, definition.Value);
+                        Message("这里放不下旋转后的物品。");
                     }
                 }
-                else if (_targetSecure && Message != null)
+                else
                 {
-                    Message(SecureContainerRules.IsEligible(definition)
-                        ? "保险箱空间不足。"
-                        : "保险箱只接受 1×1 非武器/护甲物品。");
+                    stored = _validTarget
+                             && targetBag.TryStackAt(
+                                 _item.DefinitionId,
+                                 _item.BaseShape,
+                                 _target,
+                                 _rotation,
+                                 _item.Count,
+                                 definition.MaxStack,
+                                 out placed,
+                                 out error);
+
+                    if (!stored && _targetSecure && SecureContainerRules.IsEligible(definition))
+                    {
+                        stored = _secureBag.TryAddOrStack(
+                            definition.Id,
+                            _item.BaseShape,
+                            _item.Rotatable,
+                            _item.Count,
+                            definition.MaxStack,
+                            out placed,
+                            out error);
+                    }
+
+                    if (stored)
+                    {
+                        ItemTransfer.PreserveAll(_item, placed);
+                        _source.Bag.Remove(_item.InstanceId);
+                        if (sourceIsLoot && ItemTaken != null)
+                        {
+                            ItemTaken(definition.DisplayName, definition.Value);
+                        }
+                    }
+                    else if (_targetSecure && Message != null)
+                    {
+                        Message(SecureContainerRules.IsEligible(definition)
+                            ? "保险箱空间不足。"
+                            : "保险箱只接受 1×1 非武器/护甲物品。");
+                    }
                 }
             }
 
