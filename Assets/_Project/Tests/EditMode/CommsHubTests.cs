@@ -225,6 +225,11 @@ namespace BitRunner.Tests
             Assert.IsFalse(hub.CanModify(uplink.InstanceId, out error));
             StringAssert.Contains("清一清场", error);
 
+            // 核心层也必须拒绝，不能只靠 UI 的拖拽守卫。
+            Assert.IsFalse(hub.Grid.TryMove(uplink.InstanceId, new Cell(1, 1), out error));
+            Assert.IsFalse(hub.Grid.TryTransform(uplink.InstanceId, new Cell(1, 1), 1, out error));
+            Assert.IsFalse(hub.Grid.Remove(uplink.InstanceId));
+
             Assert.IsTrue(hub.UnlockForQuest("q_junk_1"));
             Assert.IsFalse(hub.IsLocked(uplink.InstanceId));
             Assert.IsTrue(hub.CanModify(uplink.InstanceId, out error), error);

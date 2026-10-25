@@ -276,6 +276,38 @@ namespace BitRunner.Tests
         }
 
         [Test]
+        public void ClaimCanConsumeDeliveredItemsFromPlayerBag()
+        {
+            ItemCatalog catalog = Catalog();
+            CommsHub hub = HubWith(catalog, "uplink_junk");
+            var log = new QuestLog();
+            var campaign = Campaign();
+            BagInventory stash = EmptyStash();
+            BagInventory playerBag = new BagInventory(6, 5);
+
+            string error;
+            Assert.IsTrue(log.TryAccept(Q("q_junk_1"), hub, 0, out error), error);
+            log.ReportDiveCleared("dive_wild", false);
+            Assert.IsTrue(log.TryClaim(Q("q_junk_1"), hub, campaign, stash, catalog, out error), error);
+
+            Assert.IsTrue(log.TryAccept(Q("q_junk_2"), hub, 0, out error), error);
+            for (int i = 0; i < 5; i++)
+            {
+                PlacedItem placed;
+                Assert.IsTrue(playerBag.TryAdd("scrap", catalog.Get("scrap").Shape, out placed));
+            }
+
+            log.RefreshStatic(catalog, stash, playerBag, campaign);
+            Assert.AreEqual(QuestState.Ready, log.StateOf("q_junk_2"), "背包里的交付物也要计入进度");
+
+            Assert.IsTrue(
+                log.TryClaim(Q("q_junk_2"), hub, campaign, stash, playerBag, catalog, out error),
+                error);
+            Assert.AreEqual(0, ItemSearch.CountOf(playerBag, "scrap"));
+            Assert.AreEqual(1, ItemSearch.CountOf(stash, "uplink_arms"));
+        }
+
+        [Test]
         public void ClaimFailsWhenTheRewardDoesNotFit()
         {
             ItemCatalog catalog = Catalog();

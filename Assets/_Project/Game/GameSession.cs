@@ -400,7 +400,7 @@ namespace BitRunner.Game
                 return false;
             }
 
-            return Quests.TryClaim(definition, Comms, Campaign, Stash, Catalog, out error);
+            return Quests.TryClaim(definition, Comms, Campaign, Stash, PlayerBag, Catalog, out error);
         }
 
         public static bool AbandonQuest(string questId, out string error)

@@ -105,7 +105,7 @@ namespace BitRunner.Core
                 }
 
                 int until;
-                if (_cooldownUntilDay.TryGetValue(definition.Id, out until) && today < until)
+                if (_cooldownUntilDay.TryGetValue(definition.NpcId, out until) && today < until)
                 {
                     reason = "对方还在气头上（还要等 " + (until - today) + " 天）。";
                     return false;
@@ -180,6 +180,22 @@ namespace BitRunner.Core
             ItemCatalog catalog,
             out string error)
         {
+            return TryClaim(definition, hub, campaign, stash, null, catalog, out error);
+        }
+
+        /// <summary>
+        /// 交付物可以来自仓库或随身背包。UI 的 RefreshStatic 两者都统计，
+        /// 领取时也必须用同一口径，否则「显示可领、点击却报不足」。
+        /// </summary>
+        public bool TryClaim(
+            QuestDefinition definition,
+            CommsHub hub,
+            CampaignState campaign,
+            BagInventory stash,
+            BagInventory playerBag,
+            ItemCatalog catalog,
+            out string error)
+        {
             if (definition == null)
             {
                 error = "任务无效。";
@@ -199,23 +215,37 @@ namespace BitRunner.Core
                 return false;
             }
 
-            // 1) 交付类目标：先把东西扣掉。
-            int restoredNeeded = 0;
+            // 1) 交付类目标：先把东西扣掉。先扣仓库，再扣随身背包。
+            int restoredFromStash = 0;
+            int restoredFromBag = 0;
             if (definition.IsHoldingObjective)
             {
-                if (ItemSearch.CountOf(stash, definition.TargetId) < definition.TargetCount)
+                int inStash = ItemSearch.CountOf(stash, definition.TargetId);
+                int inBag = playerBag != null ? ItemSearch.CountOf(playerBag, definition.TargetId) : 0;
+                if (inStash + inBag < definition.TargetCount)
                 {
                     error = "交付物不足。";
                     return false;
                 }
 
-                if (!ItemSearch.TryConsume(stash, definition.TargetId, definition.TargetCount))
+                restoredFromStash = Math.Min(inStash, definition.TargetCount);
+                restoredFromBag = definition.TargetCount - restoredFromStash;
+
+                if (restoredFromStash > 0
+                    && !ItemSearch.TryConsume(stash, definition.TargetId, restoredFromStash))
                 {
                     error = "交付物不足。";
                     return false;
                 }
 
-                restoredNeeded = definition.TargetCount;
+                if (restoredFromBag > 0
+                    && (playerBag == null
+                        || !ItemSearch.TryConsume(playerBag, definition.TargetId, restoredFromBag)))
+                {
+                    RestoreDelivery(stash, playerBag, catalog, definition.TargetId, restoredFromStash, 0);
+                    error = "交付物不足。";
+                    return false;
+                }
             }
 
             // 2) 发奖励。
@@ -224,15 +254,13 @@ namespace BitRunner.Core
             if (!granted)
             {
                 Rollback(stash, added);
-
-                if (restoredNeeded > 0)
-                {
-                    ItemDefinition target;
-                    if (catalog != null && catalog.TryGet(definition.TargetId, out target))
-                    {
-                        stash.AddAmount(target.Id, target.Shape, restoredNeeded, target.MaxStack);
-                    }
-                }
+                RestoreDelivery(
+                    stash,
+                    playerBag,
+                    catalog,
+                    definition.TargetId,
+                    restoredFromStash,
+                    restoredFromBag);
 
                 error = "仓库放不下奖励，先腾出空间。";
                 return false;
@@ -448,7 +476,37 @@ namespace BitRunner.Core
                 hub.UnlockForQuest(definition.Id);
             }
 
-            _cooldownUntilDay[definition.Id] = today + FailCooldownDays;
+            _cooldownUntilDay[definition.NpcId] = today + FailCooldownDays;
+        }
+
+        private static void RestoreDelivery(
+            BagInventory stash,
+            BagInventory playerBag,
+            ItemCatalog catalog,
+            string itemId,
+            int stashCount,
+            int bagCount)
+        {
+            if (catalog == null || string.IsNullOrEmpty(itemId))
+            {
+                return;
+            }
+
+            ItemDefinition target;
+            if (!catalog.TryGet(itemId, out target))
+            {
+                return;
+            }
+
+            if (stashCount > 0 && stash != null)
+            {
+                stash.AddAmount(target.Id, target.Shape, stashCount, target.MaxStack);
+            }
+
+            if (bagCount > 0 && playerBag != null)
+            {
+                playerBag.AddAmount(target.Id, target.Shape, bagCount, target.MaxStack);
+            }
         }
 
         private static bool GiveAll(

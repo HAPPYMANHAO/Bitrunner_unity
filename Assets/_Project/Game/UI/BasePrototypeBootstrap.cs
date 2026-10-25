@@ -23,6 +23,9 @@ namespace BitRunner.Game
         private static readonly Color WindowColor = new Color32(16, 20, 26, 255);
         private static readonly Color WindowScreenColor = new Color32(23, 29, 36, 255);
 
+        /// <summary>仓库单独用更大的格子，视觉上比 6×5 背包更宽；容量规则不变。</summary>
+        private const int StashCellSize = 20;
+
         private enum BaseTab
         {
             Merchant,
@@ -473,8 +476,8 @@ namespace BitRunner.Game
                     {
                         _stashView.Rebind(_stash);
                         _stashRect.sizeDelta = new Vector2(
-                            _stash.Grid.Width * BagView.CellSize,
-                            _stash.Grid.Height * BagView.CellSize);
+                            _stash.Grid.Width * StashCellSize,
+                            _stash.Grid.Height * StashCellSize);
                         RebuildSources();
                         RefreshAll();
                         SetMessage("仓储设备升级到 Lv." + _rack.Level + "（" + _stash.Grid.Height + " 行）。");
@@ -1344,7 +1347,7 @@ namespace BitRunner.Game
             stashPanel.gameObject.AddComponent<RectMask2D>();
             CreateText(stashPanel, "Title", "仓库", 10, TextColor, new Vector2(8f, -6f), new Vector2(134f, 14f), TextAnchor.UpperLeft);
 
-            _stashViewport = CreateCenteredPanel(stashPanel, "StashViewport", new Vector2(0f, -6f), new Vector2(6f * BagView.CellSize, 96f), Color.clear);
+            _stashViewport = CreateCenteredPanel(stashPanel, "StashViewport", new Vector2(0f, -6f), new Vector2(6f * StashCellSize, 100f), Color.clear);
             var viewportImage = _stashViewport.GetComponent<Image>();
             if (viewportImage != null)
             {
@@ -1352,11 +1355,11 @@ namespace BitRunner.Game
             }
 
             _stashViewport.gameObject.AddComponent<RectMask2D>();
-            _stashRect = CreateBagRect(_stashViewport, Vector2.zero, new Vector2(6f * BagView.CellSize, _stash.Grid.Height * BagView.CellSize));
+            _stashRect = CreateBagRect(_stashViewport, Vector2.zero, new Vector2(6f * StashCellSize, _stash.Grid.Height * StashCellSize));
             _stashView = _stashRect.gameObject.AddComponent<BagView>();
-            _stashView.Initialize(_stash, _stashRect, _palette);
+            _stashView.Initialize(_stash, _stashRect, _palette, null, StashCellSize);
 
-            RectTransform scrollbarRect = CreateCenteredPanel(stashPanel, "StashScrollbar", new Vector2(65f, -6f), new Vector2(8f, 96f), new Color32(38, 44, 54, 255));
+            RectTransform scrollbarRect = CreateCenteredPanel(stashPanel, "StashScrollbar", new Vector2(65f, -6f), new Vector2(8f, 100f), new Color32(38, 44, 54, 255));
             var scrollbar = scrollbarRect.gameObject.AddComponent<Scrollbar>();
             RectTransform scrollbarHandle = CreateCenteredPanel(scrollbarRect, "Handle", Vector2.zero, new Vector2(8f, 40f), new Color32(92, 108, 132, 255));
             scrollbar.handleRect = scrollbarHandle;
@@ -1814,7 +1817,7 @@ namespace BitRunner.Game
             for (int i = tooltipSources.Count - 1; i >= 0; i--)
             {
                 Cell cell;
-                if (!TryScreenToCell(tooltipSources[i].Rect, tooltipSources[i].Bag, screen, out cell))
+                if (!TryScreenToCell(tooltipSources[i].Rect, tooltipSources[i].Bag, tooltipSources[i].View, screen, out cell))
                 {
                     continue;
                 }
@@ -1885,7 +1888,12 @@ namespace BitRunner.Game
             _tooltipPanel.SetActive(true);
         }
 
-        private static bool TryScreenToCell(RectTransform rect, BagInventory bag, Vector2 screen, out Cell cell)
+        private static bool TryScreenToCell(
+            RectTransform rect,
+            BagInventory bag,
+            BagView view,
+            Vector2 screen,
+            out Cell cell)
         {
             Vector2 local;
             if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screen, null, out local))
@@ -1894,11 +1902,12 @@ namespace BitRunner.Game
                 return false;
             }
 
-            float halfWidth = bag.Grid.Width * BagView.CellSize * 0.5f;
-            float halfHeight = bag.Grid.Height * BagView.CellSize * 0.5f;
+            int cellSize = view != null ? view.ViewCellSize : BagView.CellSize;
+            float halfWidth = bag.Grid.Width * cellSize * 0.5f;
+            float halfHeight = bag.Grid.Height * cellSize * 0.5f;
 
-            int x = Mathf.FloorToInt((local.x + halfWidth) / BagView.CellSize);
-            int y = Mathf.FloorToInt((halfHeight - local.y) / BagView.CellSize);
+            int x = Mathf.FloorToInt((local.x + halfWidth) / cellSize);
+            int y = Mathf.FloorToInt((halfHeight - local.y) / cellSize);
 
             cell = new Cell(x, y);
             return x >= 0 && x < bag.Grid.Width && y >= 0 && y < bag.Grid.Height;

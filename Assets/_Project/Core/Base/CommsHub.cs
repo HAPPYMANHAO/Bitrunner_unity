@@ -28,6 +28,11 @@ namespace BitRunner.Core
         {
             Level = 1;
             Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
+            Grid.ItemModificationGuard = instanceId =>
+            {
+                string error;
+                return CanModify(instanceId, out error) ? null : error;
+            };
         }
 
         /// <summary>L1 2×2 / L2 3×2 / L3 3×3 / L4 4×3 / L5 4×4（4 / 6 / 9 / 12 / 16 格）。</summary>

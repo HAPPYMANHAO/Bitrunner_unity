@@ -124,6 +124,11 @@ namespace BitRunner.Game
                 RotateDrag(screen);
             }
 
+            if (!_dragging && mouse.rightButton.wasPressedThisFrame)
+            {
+                RotateUnderCursor(screen);
+            }
+
             if (_dragging && mouse.leftButton.wasReleasedThisFrame)
             {
                 if (_clickCandidate)
@@ -251,6 +256,65 @@ namespace BitRunner.Game
 
             _rotation = (_rotation + 1) % 4;
             UpdateDrag(screen);
+        }
+
+        /// <summary>
+        /// 右键直接旋转光标下的战利品。搜刮时经常需要先把 2×2 转成 1×3
+        /// 才塞得进背包，不能强制玩家先按住左键进入拖拽态。
+        /// </summary>
+        private void RotateUnderCursor(Vector2 screen)
+        {
+            Cell cell;
+            LootSource source = FindSourceAt(screen, out cell);
+            if (source == null)
+            {
+                return;
+            }
+
+            int instanceId = source.Bag.Grid.GetOccupant(cell.X, cell.Y);
+            if (instanceId == 0)
+            {
+                return;
+            }
+
+            PlacedItem item;
+            if (!source.Bag.TryGet(instanceId, out item) || !item.Rotatable)
+            {
+                return;
+            }
+
+            string error;
+            if (!source.Bag.TryRotate(instanceId, out error))
+            {
+                if (Message != null)
+                {
+                    Message("空间不足，无法旋转。");
+                }
+
+                return;
+            }
+
+            source.View.Refresh();
+            if (Message != null)
+            {
+                ItemDefinition definition = _catalog.Get(item.DefinitionId);
+                Message("已旋转 " + definition.DisplayName + "。");
+            }
+        }
+
+        private LootSource FindSourceAt(Vector2 screen, out Cell cell)
+        {
+            for (int i = _sources.Count - 1; i >= 0; i--)
+            {
+                LootSource source = _sources[i];
+                if (TryScreenToCell(source.Rect, source.Bag, screen, out cell))
+                {
+                    return source;
+                }
+            }
+
+            cell = Cell.Zero;
+            return null;
         }
 
         public int TakeAll()

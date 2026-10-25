@@ -37,6 +37,12 @@ namespace BitRunner.Core
 
         public BagGrid Grid { get; private set; }
 
+        /// <summary>
+        /// 可选修改守卫：返回 null 表示允许，返回文案表示拒绝。
+        /// 通讯中枢用它把被任务锁定的上行链路钉在格子里，防止绕过 UI 直接改背包。
+        /// </summary>
+        public Func<int, string> ItemModificationGuard;
+
         public int Count
         {
             get { return _items.Count; }
@@ -340,6 +346,23 @@ namespace BitRunner.Core
 
             int remaining = amount;
             IReadOnlyList<PlacedItem> items = Items;
+            if (ItemModificationGuard != null)
+            {
+                for (int i = 0; i < items.Count; i++)
+                {
+                    if (items[i].DefinitionId != definitionId)
+                    {
+                        continue;
+                    }
+
+                    string guardError;
+                    if (!CheckModifiable(items[i].InstanceId, out guardError))
+                    {
+                        return false;
+                    }
+                }
+            }
+
             for (int i = 0; i < items.Count && remaining > 0; i++)
             {
                 PlacedItem item = items[i];
@@ -365,6 +388,12 @@ namespace BitRunner.Core
             removed = 0;
             PlacedItem item;
             if (!TryGet(instanceId, out item) || amount <= 0)
+            {
+                return false;
+            }
+
+            string error;
+            if (!CheckModifiable(instanceId, out error))
             {
                 return false;
             }
@@ -472,6 +501,11 @@ namespace BitRunner.Core
                 return false;
             }
 
+            if (!CheckModifiable(instanceId, out error))
+            {
+                return false;
+            }
+
             if (item.Origin == newOrigin)
             {
                 error = null;
@@ -498,6 +532,11 @@ namespace BitRunner.Core
             if (!_items.TryGetValue(instanceId, out item))
             {
                 error = "Unknown item " + instanceId + ".";
+                return false;
+            }
+
+            if (!CheckModifiable(instanceId, out error))
+            {
                 return false;
             }
 
@@ -543,6 +582,11 @@ namespace BitRunner.Core
                 return false;
             }
 
+            if (!CheckModifiable(instanceId, out error))
+            {
+                return false;
+            }
+
             if (!item.Rotatable)
             {
                 error = "Item cannot be rotated.";
@@ -567,6 +611,12 @@ namespace BitRunner.Core
         public bool Remove(int instanceId)
         {
             if (!_items.ContainsKey(instanceId))
+            {
+                return false;
+            }
+
+            string error;
+            if (!CheckModifiable(instanceId, out error))
             {
                 return false;
             }
@@ -641,6 +691,22 @@ namespace BitRunner.Core
             {
                 pairs.Add(new ItemPair(low, high));
             }
+        }
+
+        private bool CheckModifiable(int instanceId, out string error)
+        {
+            if (ItemModificationGuard != null)
+            {
+                string reason = ItemModificationGuard(instanceId);
+                if (!string.IsNullOrEmpty(reason))
+                {
+                    error = reason;
+                    return false;
+                }
+            }
+
+            error = null;
+            return true;
         }
 
         private PlacedItem Commit(string definitionId, ItemShape baseShape, int rotation, Cell origin, bool rotatable, int count)
