@@ -44,6 +44,12 @@ namespace BitRunner.Game
             public BagInventory Bag;
             public RectTransform Rect;
             public BagView View;
+
+            /// <summary>
+            /// 这个背包里的物品会不会被"使用"。保险箱在战斗里只当投放目标（物品全灰），
+            /// 一旦参与使用动画的查找，就会因为<b>每个背包各自从 1 编号</b>而抢走编号相同的格子。
+            /// </summary>
+            public bool IsUseSource = true;
         }
 
         /// <summary>一张敌人卡的标准宽度。两张并排（300×2 + 8）刚好 608，居中留 16 边距。</summary>
@@ -164,12 +170,17 @@ namespace BitRunner.Game
         private bool _animating;
         private int _animStepIndex;
         private float _animTime;
-        private RectTransform _animItemRect;
         private RectTransform _animTargetRect;
         private Image _animTargetImage;
         private Color _animTargetBaseColor;
         private Image _fxPulse;
         private Image _fxSpark;
+
+        // 光点起点用「画布坐标 + 尺寸」表达，而不是只抱着一个 RectTransform：
+        // 格子被 Refresh 销毁后 RectTransform 会变空，但起点位置依然是对的。
+        private bool _animHasItem;
+        private Vector2 _animItemPoint;
+        private Vector2 _animItemSize;
 
         // 点击瞬间的格子快照：消耗品用掉后背包里已经没有这个 ItemView 了。
         // **必须连 actor 一起记**：BagInventory 的 InstanceId 是从 1 开始按背包各自编号的，
@@ -178,6 +189,9 @@ namespace BitRunner.Game
         private string _usedItemActorId;
         private RectTransform _usedItemRect;
         private Sprite _usedItemSprite;
+        private bool _usedItemPointValid;
+        private Vector2 _usedItemPoint;
+        private Vector2 _usedItemSize;
         private RectTransform _speedRect;
         private Text _speedText;
         private int _animationSpeed = 1;
@@ -406,7 +420,14 @@ namespace BitRunner.Game
 
             // 保险箱在战斗中只作为投放目标：物品不可点击使用，但搜刮时能拖进去。
             _secureView.ItemEnabledPredicate = item => false;
-            _bags.Add(new BagBinding { Owner = _player, Bag = GameSession.Secure, Rect = _secureRect, View = _secureView });
+            _bags.Add(new BagBinding
+            {
+                Owner = _player,
+                Bag = GameSession.Secure,
+                Rect = _secureRect,
+                View = _secureView,
+                IsUseSource = false
+            });
 
             _bags.Add(new BagBinding { Owner = _player, Bag = _player.Bag, Rect = _playerBagRect, View = _playerView });
 
@@ -1556,6 +1577,13 @@ namespace BitRunner.Game
                     continue;
                 }
 
+                // 保险箱（以及将来任何"不能用来使用"的背包）不参与：编号是按背包各自起的，
+                // 保险箱里的 #1 和背包里的 #1 是两件不同的东西，让它参与就会从保险箱飘出光点。
+                if (!binding.IsUseSource)
+                {
+                    continue;
+                }
+
                 ItemView view;
                 if (binding.View.TryGetItemView(instanceId, out view))
                 {
@@ -1569,6 +1597,11 @@ namespace BitRunner.Game
             {
                 BagBinding binding = _bags[i];
                 if (binding.Owner == null || binding.Owner.Id != actorId || binding.Bag == null)
+                {
+                    continue;
+                }
+
+                if (!binding.IsUseSource)
                 {
                     continue;
                 }
@@ -1679,6 +1712,9 @@ namespace BitRunner.Game
         /// <summary>
         /// 记住"这次要点的是哪个格子"。必须在 <see cref="CombatEngine.TryUseItem"/> 之前调用：
         /// 消耗品用掉后会从背包移除，动画开始时已经找不到 ItemView 了。
+        ///
+        /// 除了 RectTransform 本身，还把当时的画布坐标和尺寸抄一份：格子被 Refresh 销毁之后
+        /// 那个 RectTransform 就成了空引用，但光点的起点仍然应该是玩家点的那一格。
         /// </summary>
         private void SnapshotUsedItem(int instanceId)
         {
@@ -1686,42 +1722,68 @@ namespace BitRunner.Game
             _usedItemActorId = _player != null ? _player.Id : null;
             _usedItemRect = null;
             _usedItemSprite = null;
+            _usedItemPointValid = false;
 
             ItemView view;
             if (_playerView != null && _playerView.TryGetItemView(instanceId, out view))
             {
                 _usedItemRect = view.transform as RectTransform;
                 _usedItemSprite = view.Image != null ? view.Image.sprite : null;
+                if (_usedItemRect != null)
+                {
+                    _usedItemPoint = CanvasPoint(_usedItemRect);
+                    _usedItemSize = _usedItemRect.rect.size;
+                    _usedItemPointValid = true;
+                }
             }
         }
 
         private void BeginAnimationStep(int index)
         {
             UseAnimationStep step = _animSteps[index];
-            _animItemRect = null;
+            _animHasItem = false;
             _animTargetRect = PanelRectFor(step.Target);
             _animTargetImage = PanelImageFor(step.Target);
             _animTargetBaseColor = _animTargetImage != null ? _animTargetImage.color : Color.white;
 
             Sprite sprite = null;
             ItemView view;
-            if (step.Source != null && step.Source.View != null
-                && step.Source.View.TryGetItemView(step.InstanceId, out view))
+            if (step.InstanceId == _usedItemInstance && step.ActorId == _usedItemActorId)
             {
-                _animItemRect = view.transform as RectTransform;
-                sprite = view.Image != null ? view.Image.sprite : null;
-            }
-            else if (step.InstanceId == _usedItemInstance && step.ActorId == _usedItemActorId)
-            {
-                // 消耗品已经消失了，用点击瞬间的快照——否则这一步只剩目标闪光，看着像没做动画。
-                _animItemRect = _usedItemRect;
+                // 玩家自己刚点的那一格是**唯一权威**的起点：编号按背包各自起，
+                // 反查视图有可能落到别的背包里编号相同的物品上（保险箱里的那件）。
                 sprite = _usedItemSprite;
+                if (_usedItemRect != null)
+                {
+                    _animItemPoint = CanvasPoint(_usedItemRect);
+                    _animItemSize = _usedItemRect.rect.size;
+                    _animHasItem = true;
+                }
+                else if (_usedItemPointValid)
+                {
+                    _animItemPoint = _usedItemPoint;
+                    _animItemSize = _usedItemSize;
+                    _animHasItem = true;
+                }
             }
 
-            if (_animItemRect != null)
+            if (!_animHasItem && step.Source != null && step.Source.View != null
+                && step.Source.View.TryGetItemView(step.InstanceId, out view))
+            {
+                var itemRect = view.transform as RectTransform;
+                if (itemRect != null)
+                {
+                    _animItemPoint = CanvasPoint(itemRect);
+                    _animItemSize = itemRect.rect.size;
+                    _animHasItem = true;
+                    sprite = view.Image != null ? view.Image.sprite : null;
+                }
+            }
+
+            if (_animHasItem)
             {
                 _fxPulse.sprite = sprite != null ? sprite : SpriteFactory.White;
-                _fxPulse.rectTransform.sizeDelta = _animItemRect.rect.size + new Vector2(3f, 3f);
+                _fxPulse.rectTransform.sizeDelta = _animItemSize + new Vector2(3f, 3f);
             }
 
             _fxPulse.gameObject.SetActive(false);
@@ -1751,11 +1813,11 @@ namespace BitRunner.Game
         private void UpdateAnimationVisuals()
         {
             float t = _animTime;
-            if (_animItemRect != null && t <= AnimPulseSeconds)
+            if (_animHasItem && t <= AnimPulseSeconds)
             {
                 float p = Mathf.Clamp01(t / AnimPulseSeconds);
                 _fxPulse.gameObject.SetActive(true);
-                _fxPulse.rectTransform.anchoredPosition = CanvasPoint(_animItemRect);
+                _fxPulse.rectTransform.anchoredPosition = _animItemPoint;
                 float scale = 1f + 0.24f * Mathf.Sin(Mathf.PI * p);
                 _fxPulse.rectTransform.localScale = new Vector3(scale, scale, 1f);
                 Color color = _fxPulse.color;
@@ -1767,12 +1829,12 @@ namespace BitRunner.Game
                 _fxPulse.gameObject.SetActive(false);
             }
 
-            if (_animItemRect != null && _animTargetRect != null
+            if (_animHasItem && _animTargetRect != null
                 && t >= AnimSparkStart && t <= AnimSparkStart + AnimSparkSeconds)
             {
                 float p = Mathf.Clamp01((t - AnimSparkStart) / AnimSparkSeconds);
                 _fxSpark.gameObject.SetActive(true);
-                Vector2 from = CanvasPoint(_animItemRect);
+                Vector2 from = _animItemPoint;
                 Vector2 to = CanvasPoint(_animTargetRect);
                 _fxSpark.rectTransform.anchoredPosition = Vector2.Lerp(from, to, p);
             }

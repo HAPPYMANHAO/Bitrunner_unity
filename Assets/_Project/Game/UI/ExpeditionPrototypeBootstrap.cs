@@ -74,6 +74,13 @@ namespace BitRunner.Game
         /// </summary>
         private readonly List<BaseBagSource> _mainHoverSources = new List<BaseBagSource>();
 
+        /// <summary>缓存悬停源时用的背包引用，用来发现"行动袋被换成新实例了"。见 <see cref="EnsureMainHoverSources"/>。</summary>
+        private BagInventory _hoverActionBag;
+        private BagInventory _hoverSelectedBag;
+        private BagInventory _hoverPack;
+        private BagInventory _hoverSecure;
+        private bool _hoverShowPlayerBag;
+
         /// <summary>
         /// 压栈那一帧的点击不能算数。
         ///
@@ -658,6 +665,9 @@ namespace BitRunner.Game
             {
                 _actionDrag.SetSources(ActionSources());
             }
+
+            // 行动袋换了实例，悬停源里的 ACTIONS / SELECTED 必须跟着指向新的那两个背包。
+            RebuildMainHoverSources();
 
             RefreshSelected();
         }
@@ -1902,6 +1912,7 @@ namespace BitRunner.Game
 
         private void UpdateItemTooltip(Vector2 screen)
         {
+            EnsureMainHoverSources();
             IReadOnlyList<BaseBagSource> sources = CurrentItemSources();
             if (_itemTooltipPanel == null || _ended
                 || (_actionDrag != null && _actionDrag.IsDragging)
@@ -1984,10 +1995,36 @@ namespace BitRunner.Game
             return _mainHoverSources;
         }
 
-        /// <summary>重建主界面悬停源。切页签（行动 / 背包）时要重来一次。</summary>
+        /// <summary>
+        /// 主界面悬停源必须跟着「当前装的是哪个背包」走。
+        ///
+        /// 行动袋（<c>_actionBag</c>）和已选行动（<c>_selectedActionBag</c>）每执行一次行动就会被
+        /// <see cref="RebuildActionBags"/> 换成新实例——缓存下来的旧源指向一个已经没人看的空背包，
+        /// 于是"悬停行动物品什么都不弹"。这里在每次查询前比一次引用，换了就重建。
+        /// </summary>
+        private void EnsureMainHoverSources()
+        {
+            if (_hoverActionBag == _actionBag
+                && _hoverSelectedBag == _selectedActionBag
+                && _hoverPack == _bag
+                && _hoverSecure == _secure
+                && _hoverShowPlayerBag == _showPlayerBag)
+            {
+                return;
+            }
+
+            RebuildMainHoverSources();
+        }
+
+        /// <summary>重建主界面悬停源。切页签（行动 / 背包）、换行动袋时要重来一次。</summary>
         private void RebuildMainHoverSources()
         {
             _mainHoverSources.Clear();
+            _hoverActionBag = _actionBag;
+            _hoverSelectedBag = _selectedActionBag;
+            _hoverPack = _bag;
+            _hoverSecure = _secure;
+            _hoverShowPlayerBag = _showPlayerBag;
 
             if (_actionDrag != null && _actionDrag.Sources != null)
             {
