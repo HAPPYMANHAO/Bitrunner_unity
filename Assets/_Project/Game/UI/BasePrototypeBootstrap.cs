@@ -44,6 +44,7 @@ namespace BitRunner.Game
         private Dictionary<string, Color> _palette;
 
         private RectTransform _canvasRect;
+        private GameShell _shell;
         private Text _hudText;
         private Text _statsText;
         private RectTransform _progressFill;
@@ -188,21 +189,32 @@ namespace BitRunner.Game
             _palette = BuildPalette(_catalog);
             _activeTab = BaseTab.Merchant;
 
-            Canvas canvas = CreateCanvas();
-            _canvasRect = (RectTransform)canvas.transform;
+            // 外壳持有相机、画布、账本 HUD、左栏、背包、保险箱、日志。
+            // 这些实例三种模式共用，切模式不重建——基地这边只是把引用接过来用。
+            _shell = GameShell.Ensure(_bag, _secure, _palette);
+            _canvasRect = _shell.Root;
 
-            BuildHud(canvas.transform);
-            BuildLeftStats(canvas.transform);
-            BuildBagPanels(canvas.transform);
-            BuildRightPanel(canvas.transform);
-            BuildDeploy(canvas.transform);
-            BuildArtStage(canvas.transform);
-            BuildLog(canvas.transform);
+            _hudText = _shell.HudText;
+            _progressFill = _shell.DebtFillRect;
+            _statsText = _shell.VitalsText;
+            _logText = _shell.LogText;
+            _bagView = _shell.PackView;
+            _bagRect = (RectTransform)_bagView.transform;
+            _secureView = _shell.SecureView;
+            _secureRect = (RectTransform)_secureView.transform;
+            _secureTitle = _shell.SecureTitle;
+
+            // 以下四项是基地自己的内容，建在 Screen 层（唯一可换的区域）。
+            BuildRightPanel(_shell.ScreenLayer);
+            BuildDeploy(_shell.ScreenLayer);
+            BuildArtStage(_shell.ScreenLayer);
+            BuildStashPanel(_shell.ScreenLayer);
+
             BuildDrag();
-            BuildTooltip(canvas.transform);
+            BuildTooltip(_shell.TooltipLayer);
             BuildContainerWindows();
-            BuildNpcWindow(canvas.transform);
-            BuildEndOverlay(canvas.transform);
+            BuildNpcWindow(_shell.OverlayLayer);
+            BuildEndOverlay(_shell.EndLayer);
 
             SetActiveTab(BaseTab.Merchant, true);
             RefreshAll();
@@ -1084,39 +1096,12 @@ namespace BitRunner.Game
         }
 
         /// <summary>
-        /// 债务只在这一个面板出现：周/天、应缴/已缴、bit 与进度条。
-        /// 左栏是角色属性（生命/空间/能量），不再重复任何债务数字。
+        /// F2 中段大板。基地这里是仓库，所以归 Screen 持有——探索要在这块放"结果预估"，
+        /// 战斗要放"目标背包"。F1 背包与 F3 保险箱才是外壳持有、三模式永不重建的那两个。
         /// </summary>
-        private void BuildHud(Transform canvas)
+        private void BuildStashPanel(Transform screen)
         {
-            RectTransform panel = CreateCenteredPanel(canvas, "Hud", new Vector2(-227f, 141f), new Vector2(170f, 74f), PanelColor);
-            AddBorder(panel, new Color32(67, 59, 47, 255));
-            _hudText = CreateText(panel, "Stats", string.Empty, 10, TextColor, new Vector2(10f, -6f), new Vector2(150f, 48f), TextAnchor.UpperLeft);
-
-            RectTransform bg = CreateAnchoredPanel(panel, "DebtBar", new Vector2(10f, -58f), new Vector2(150f, 5f), new Color32(38, 44, 54, 255));
-            bg.GetComponent<Image>().raycastTarget = false;
-            _progressFill = CreateAnchoredPanel(bg, "Fill", Vector2.zero, new Vector2(0f, 5f), AccentColor);
-            _progressFill.GetComponent<Image>().raycastTarget = false;
-        }
-
-        private void BuildBagPanels(Transform canvas)
-        {
-            RectTransform bench = CreateCenteredPanel(canvas, "Workbench", new Vector2(-36f, -104f), new Vector2(398f, 132f), BenchColor);
-            bench.GetComponent<Image>().raycastTarget = false;
-            AddBorder(bench, BenchRailColor);
-            RectTransform benchRail = CreateAnchoredPanel(bench, "TopRail", Vector2.zero, new Vector2(398f, 6f), BenchRailColor);
-            benchRail.GetComponent<Image>().raycastTarget = false;
-            CreateText(bench, "BenchLabel", "WORKBENCH", 7, new Color32(120, 104, 78, 255), new Vector2(318f, -10f), new Vector2(76f, 10f), TextAnchor.UpperLeft);
-
-            RectTransform bagPanel = CreateCenteredPanel(canvas, "PackPanel", new Vector2(-172f, -108f), new Vector2(110f, 124f), PanelColor);
-            bagPanel.gameObject.AddComponent<RectMask2D>();
-            CreateText(bagPanel, "Title", "背包", 10, TextColor, new Vector2(8f, -6f), new Vector2(124f, 14f), TextAnchor.UpperLeft);
-
-            _bagRect = CreateBagRect(bagPanel, new Vector2(0f, 2f), new Vector2(6f * BagView.CellSize, 5f * BagView.CellSize));
-            _bagView = _bagRect.gameObject.AddComponent<BagView>();
-            _bagView.Initialize(_bag, _bagRect, _palette);
-
-            RectTransform stashPanel = CreateCenteredPanel(canvas, "StashPanel", new Vector2(-19f, -108f), new Vector2(184f, 124f), PanelColor);
+            RectTransform stashPanel = CreateCenteredPanel(screen, "StashPanel", new Vector2(-19f, -108f), new Vector2(184f, 124f), PanelColor);
             stashPanel.gameObject.AddComponent<RectMask2D>();
             CreateText(stashPanel, "Title", "仓库", 10, TextColor, new Vector2(8f, -6f), new Vector2(168f, 14f), TextAnchor.UpperLeft);
 
@@ -1156,12 +1141,6 @@ namespace BitRunner.Game
             _stashScroll.Viewport = _stashViewport;
             _stashScroll.Track = scrollbarRect;
             _stashScroll.Handle = scrollbarHandle;
-
-            RectTransform securePanel = CreateCenteredPanel(canvas, "SecurePanel", new Vector2(117f, -128f), new Vector2(76f, 84f), PanelColor);
-            _secureTitle = CreateText(securePanel, "Title", "保险箱 0/4", 9, TextColor, new Vector2(6f, -4f), new Vector2(64f, 12f), TextAnchor.UpperLeft);
-            _secureRect = CreateBagRect(securePanel, new Vector2(0f, -8f), new Vector2(2f * BagView.CellSize, 2f * BagView.CellSize));
-            _secureView = _secureRect.gameObject.AddComponent<BagView>();
-            _secureView.Initialize(_secure, _secureRect, _palette);
         }
 
         private void BuildRightPanel(Transform canvas)
@@ -1351,23 +1330,12 @@ namespace BitRunner.Game
         }
 
         /// <summary>
-        /// 背包左侧的窄属性栏。中央整块让给立绘/台词，所以战斗与空间相关的数字只放这里；
-        /// 债务信息仍留在左上角 HUD，避免同一组数字出现两次。
-        /// </summary>
-        private void BuildLeftStats(Transform canvas)
-        {
-            RectTransform panel = CreateCenteredPanel(canvas, "LeftStats", new Vector2(-276f, -108f), new Vector2(84f, 124f), PanelColor);
-            panel.gameObject.AddComponent<RectMask2D>();
-            _statsText = CreateText(panel, "Stats", string.Empty, 8, TextColor, new Vector2(6f, -6f), new Vector2(72f, 104f), TextAnchor.UpperLeft);
-        }
-
-        /// <summary>
         /// 中央艺术台：顶部台词 + 左下立绘位。未接通联系人时显示基地提示。
         /// 立绘先用名字首字兜底，接美术时替换 Portrait 下的 Image 即可。
         /// </summary>
-        private void BuildArtStage(Transform canvas)
+        private void BuildArtStage(Transform screen)
         {
-            _artStage = CreateCenteredPanel(canvas, "ArtStage", new Vector2(0f, 50f), new Vector2(270f, 170f), WindowColor);
+            _artStage = CreateCenteredPanel(screen, "ArtStage", new Vector2(0f, 50f), new Vector2(270f, 170f), WindowColor);
             AddBorder(_artStage, new Color32(67, 59, 47, 255));
             _artStage.GetComponent<Image>().raycastTarget = false;
 
@@ -1383,26 +1351,12 @@ namespace BitRunner.Game
             RefreshArtStage();
         }
 
-        /// <summary>
-        /// 消息日志：贴在仓库右侧（工作台右边、设施面板下方），保留最近几条记录。
-        /// 中央区域整块留给立绘，不再被单行提示占用。
-        /// </summary>
-        private void BuildLog(Transform canvas)
-        {
-            RectTransform panel = CreateCenteredPanel(canvas, "Log", new Vector2(241f, -108f), new Vector2(150f, 124f), new Color32(22, 26, 32, 255));
-            AddBorder(panel, new Color32(50, 58, 68, 255));
-            panel.GetComponent<Image>().raycastTarget = false;
-            panel.gameObject.AddComponent<RectMask2D>();
-            CreateText(panel, "Header", "LOG", 7, new Color32(164, 146, 112, 255), new Vector2(8f, -6f), new Vector2(134f, 10f), TextAnchor.UpperLeft);
-            _logText = CreateText(panel, "Lines", string.Empty, 7, MutedColor, new Vector2(8f, -20f), new Vector2(134f, 98f), TextAnchor.UpperLeft);
-        }
-
-        private void BuildNpcWindow(Transform canvas)
+        private void BuildNpcWindow(Transform overlay)
         {
             var go = new GameObject("NpcBagWindow", typeof(RectTransform), typeof(Image), typeof(NpcBagWindow));
-            go.transform.SetParent(canvas, false);
+            go.transform.SetParent(overlay, false);
             _npcWindow = go.GetComponent<NpcBagWindow>();
-            _npcWindow.Initialize(_canvasRect, _catalog, _palette, _ => CloseNpcWindow());
+            _npcWindow.Initialize(_shell.OverlayLayer, _catalog, _palette, _ => CloseNpcWindow());
             _npcWindow.SetPosition(new Vector2(60f, 40f));
             go.SetActive(false);
         }
@@ -1679,7 +1633,7 @@ namespace BitRunner.Game
             RebuildSources();
 
             _drag = gameObject.AddComponent<BaseDragInteraction>();
-            _drag.Initialize(_sources, _catalog, _merchant, _campaign, _palette, _canvasRect, null, _discardBinRect);
+            _drag.Initialize(_sources, _catalog, _merchant, _campaign, _palette, _shell.DragLayer, null, _discardBinRect);
 
             // NPC 柜台：拖出=买/接单，拖入=交付。全部在特殊落点里处理，不走常规移动。
             _drag.TrySpecialDrop = TryNpcDrop;
@@ -1988,7 +1942,7 @@ namespace BitRunner.Game
         private void BuildContainerWindows()
         {
             _containerWindows = gameObject.AddComponent<FloatingWindowManager>();
-            _containerWindows.Initialize(_canvasRect, _catalog, _palette);
+            _containerWindows.Initialize(_shell.OverlayLayer, _catalog, _palette);
             _containerWindows.AttachDrag(_drag);
             _drag.TryActivateItem = (source, instanceId) =>
                 _containerWindows != null && _containerWindows.TryOpen(source, instanceId);
@@ -1996,10 +1950,10 @@ namespace BitRunner.Game
                 _containerWindows != null && _containerWindows.IsPointerOverChrome(screen);
         }
 
-        private void BuildEndOverlay(Transform canvas)
+        private void BuildEndOverlay(Transform endLayer)
         {
             _endOverlay = new GameObject("EndOverlay", typeof(RectTransform), typeof(Image));
-            _endOverlay.transform.SetParent(canvas, false);
+            _endOverlay.transform.SetParent(endLayer, false);
 
             var rect = (RectTransform)_endOverlay.transform;
             rect.anchorMin = Vector2.zero;
@@ -2013,35 +1967,6 @@ namespace BitRunner.Game
             _endSubtitle = CreateCenteredText(box, "Subtitle", string.Empty, 10, MutedColor, new Vector2(0f, -22f), new Vector2(330f, 46f));
 
             _endOverlay.SetActive(false);
-        }
-
-        private Canvas CreateCanvas()
-        {
-            if (Camera.main == null)
-            {
-                var cameraGo = new GameObject("Main Camera", typeof(Camera));
-                cameraGo.tag = "MainCamera";
-                Camera camera = cameraGo.GetComponent<Camera>();
-                camera.clearFlags = CameraClearFlags.SolidColor;
-                camera.backgroundColor = BackgroundColor;
-                camera.orthographic = true;
-            }
-
-            var go = new GameObject("BaseCanvas", typeof(Canvas), typeof(CanvasScaler));
-            var canvas = go.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-
-            var scaler = go.GetComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(640f, 360f);
-            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
-            scaler.matchWidthOrHeight = 0.5f;
-
-            RectTransform background = CreateCenteredPanel(canvas.transform, "Background", Vector2.zero, new Vector2(640f, 360f), BackgroundColor);
-            background.GetComponent<Image>().raycastTarget = false;
-            BackgroundArt.Apply(background);
-
-            return canvas;
         }
     }
 }
