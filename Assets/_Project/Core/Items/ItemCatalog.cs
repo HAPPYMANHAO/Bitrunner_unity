@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace BitRunner.Core
@@ -49,6 +49,14 @@ namespace BitRunner.Core
                 {
                     throw new ArgumentException(
                         "Item '" + definition.Id + "' has level " + definition.Level + ", outside " + MinLevel + "–" + MaxLevel + ".",
+                        nameof(definitions));
+                }
+
+                if (definition.HasDurability && definition.MaxDurability < 0)
+                {
+                    throw new ArgumentException(
+                        "Item '" + definition.Id + "' is a weapon or armor but does not declare MaxDurability. "
+                        + "写明数值（0 = 不会损坏），不要依赖隐藏默认值。",
                         nameof(definitions));
                 }
 

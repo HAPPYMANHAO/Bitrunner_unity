@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace BitRunner.Core
@@ -48,6 +48,7 @@ namespace BitRunner.Core
                     || definition.Category == ItemCategory.Key
                     || definition.Category == ItemCategory.Uplink
                     || definition.Category == ItemCategory.Currency
+                    || definition.Category == ItemCategory.Quest
                     || definition.Category == ItemCategory.Container)
                 {
                     continue;
@@ -330,6 +331,35 @@ namespace BitRunner.Core
             }
         }
 
+        /// <summary>
+        /// 读档恢复：直接换上还原好的货架与报价表。与 <see cref="RestockForDay"/> 的区别是
+        /// 这里不重掷货品——存档要的是玩家离开时的那一格货架，包括已经卖出的空位与购回条目。
+        /// </summary>
+        internal void RestoreStock(int week, int day, BagInventory stock, IEnumerable<MerchantOffer> offers)
+        {
+            if (stock != null)
+            {
+                Stock = stock;
+            }
+
+            StockWeek = week;
+            StockDay = day;
+
+            _offers.Clear();
+            if (offers == null)
+            {
+                return;
+            }
+
+            foreach (MerchantOffer offer in offers)
+            {
+                if (offer != null)
+                {
+                    _offers.Add(offer);
+                }
+            }
+        }
+
         public bool TrySellToStock(
             BagInventory source,
             int instanceId,
@@ -366,11 +396,22 @@ namespace BitRunner.Core
             }
 
             if (definition.Category == ItemCategory.Key
-                || definition.Category == ItemCategory.Currency)
+                || definition.Category == ItemCategory.Currency
+                || definition.Category == ItemCategory.Quest)
             {
-                error = definition.Category == ItemCategory.Key
-                    ? "潜网密钥不能出售。"
-                    : "比特不能作为商品出售。";
+                if (definition.Category == ItemCategory.Key)
+                {
+                    error = "潜网密钥不能出售。";
+                }
+                else if (definition.Category == ItemCategory.Quest)
+                {
+                    error = "任务契约不能出售。";
+                }
+                else
+                {
+                    error = "比特不能作为商品出售。";
+                }
+
                 return false;
             }
 
@@ -438,11 +479,22 @@ namespace BitRunner.Core
             }
 
             if (definition.Category == ItemCategory.Key
-                || definition.Category == ItemCategory.Currency)
+                || definition.Category == ItemCategory.Currency
+                || definition.Category == ItemCategory.Quest)
             {
-                error = definition.Category == ItemCategory.Key
-                    ? "潜网密钥不能出售。"
-                    : "比特不能作为商品出售。";
+                if (definition.Category == ItemCategory.Key)
+                {
+                    error = "潜网密钥不能出售。";
+                }
+                else if (definition.Category == ItemCategory.Quest)
+                {
+                    error = "任务契约不能出售。";
+                }
+                else
+                {
+                    error = "比特不能作为商品出售。";
+                }
+
                 return false;
             }
 

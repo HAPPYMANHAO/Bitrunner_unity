@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace BitRunner.Core
 {
@@ -25,7 +25,16 @@ namespace BitRunner.Core
         /// 而且 DivePod.EnsureSelection 只按 Category == Key 挑第一个，
         /// 混进去会被当成关卡密钥选中，然后报「未知密钥」。
         /// </summary>
-        Uplink
+        Uplink,
+
+        /// <summary>
+        /// 任务契约：NPC 货架上的那张卡。拿走 = 接单，还回 = 交货。
+        ///
+        /// 它是一件**真实物品**：占背包/仓库格子、会进存档，所以「能同时做几个任务」
+        /// 依然受空间约束。单独的类别让它被所有容器与保险箱拒收，
+        /// 也不会被当成商品或可使用的道具。
+        /// </summary>
+        Quest
     }
 
     public enum ItemActivation
@@ -62,21 +71,6 @@ namespace BitRunner.Core
         Overheat,
         Nanorepair,
         Evasion
-    }
-
-    public enum SynergyEffect
-    {
-        Damage,
-        Shield,
-        Energy,
-        CooldownReduction
-    }
-
-    public enum SynergyCondition
-    {
-        Adjacent,
-        SameRow,
-        SameColumn
     }
 
     public enum CombatPhase

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text;
 using BitRunner.Core;
 using UnityEngine;
@@ -82,6 +82,7 @@ namespace BitRunner.Game
         private int _takenValue;
         private readonly List<RectTransform> _enemyBagRects = new List<RectTransform>();
         private LootInteraction _lootInteraction;
+        private FloatingWindowManager _containerWindows;
 
         private int _selectedEnemy;
         private bool _ended;
@@ -95,7 +96,6 @@ namespace BitRunner.Game
             public string DefinitionId;
         }
 
-        private const string AnimationSpeedPrefKey = "bitrunner.combat.animationSpeed";
         private const float AnimPulseSeconds = 0.18f;
         private const float AnimSparkStart = 0.06f;
         private const float AnimSparkSeconds = 0.13f;
@@ -126,8 +126,8 @@ namespace BitRunner.Game
             GameSession.EnsureInitialized();
             _catalog = GameSession.Catalog;
             _palette = BuildPalette(_catalog);
-            int savedSpeed = PlayerPrefs.GetInt(AnimationSpeedPrefKey, 1);
-            _animationSpeed = savedSpeed == 2 ? 2 : (savedSpeed == 4 ? 4 : 1);
+            _animationSpeed = GameSettings.AnimationSpeed;
+            GameSettings.Changed += OnGameSettingsChanged;
             ItemDurability.EnsureBag(GameSession.PlayerBag, _catalog);
             _player = GameSession.CreatePlayerActor();
             if (GameSession.ExpeditionHp > 0)
@@ -148,6 +148,11 @@ namespace BitRunner.Game
 
         private void Update()
         {
+            if (SettingsOverlay.BlocksInput)
+            {
+                return;
+            }
+
             Mouse mouse = Mouse.current;
             if (mouse == null)
             {
@@ -307,6 +312,7 @@ namespace BitRunner.Game
 
             RectTransform background = CreateCenteredPanel(canvas.transform, "Background", Vector2.zero, new Vector2(640f, 360f), BackgroundColor);
             background.GetComponent<Image>().raycastTarget = false;
+            BackgroundArt.Apply(background);
 
             return canvas;
         }
@@ -354,6 +360,7 @@ namespace BitRunner.Game
             BuildFxLayer(canvas);
             BuildEndOverlay(canvas);
             BuildLootInteraction();
+            BuildContainerWindows();
         }
 
         private void BuildEnemyPanel(Transform canvas, CombatActor enemy, int index)
@@ -821,6 +828,65 @@ namespace BitRunner.Game
             RefreshAll();
         }
 
+        /// <summary>
+        /// 战斗里的容器统一走和基地/探索同一套窗口：搜刮阶段双击容器即可打开，
+        /// 打开的窗口同时接成搜刮拖拽源，物品可以拖进拖出。
+        /// </summary>
+        private void BuildContainerWindows()
+        {
+            _containerWindows = gameObject.AddComponent<FloatingWindowManager>();
+            _containerWindows.Initialize(_canvasRect, _catalog, _palette);
+            _containerWindows.WindowOpened += OnContainerWindowOpened;
+            _containerWindows.AttachBag(_player.Bag);
+            _containerWindows.AttachBag(GameSession.Secure);
+            for (int i = 0; i < _enemies.Count; i++)
+            {
+                _containerWindows.AttachBag(_enemies[i].Bag);
+            }
+
+            _containerWindows.WindowClosed += OnContainerWindowClosed;
+
+            if (_lootInteraction != null)
+            {
+                _lootInteraction.TryActivateItem = (source, instanceId) =>
+                    _containerWindows != null && _containerWindows.TryOpen(source.Bag, instanceId);
+                _lootInteraction.FindDropContainer = screen =>
+                    _containerWindows != null ? _containerWindows.FindContainerAt(screen) : null;
+                _lootInteraction.ViewsRefreshed += RefreshContainerWindows;
+            }
+        }
+
+        private void OnContainerWindowOpened(ContainerWindow window)
+        {
+            if (_lootInteraction == null || window == null || window.Source == null)
+            {
+                return;
+            }
+
+            _lootInteraction.AddSource(new LootSource
+            {
+                Bag = window.Source.Bag,
+                Rect = window.Source.Rect,
+                View = window.View
+            });
+        }
+
+        private void OnContainerWindowClosed(ContainerWindow window)
+        {
+            if (_lootInteraction != null && window != null && window.Source != null)
+            {
+                _lootInteraction.RemoveSource(window.Source.Bag);
+            }
+        }
+
+        private void RefreshContainerWindows()
+        {
+            if (_containerWindows != null)
+            {
+                _containerWindows.RefreshAll();
+            }
+        }
+
         private void OnLootTaken(string displayName, int value)
         {
             _takenValue += value;
@@ -907,14 +973,27 @@ namespace BitRunner.Game
         private void CycleAnimationSpeed()
         {
             _animationSpeed = _animationSpeed == 1 ? 2 : (_animationSpeed == 2 ? 4 : 1);
+            GameSettings.AnimationSpeed = _animationSpeed;
             if (_speedText != null)
             {
                 _speedText.text = "动画 " + _animationSpeed + "×";
             }
 
-            PlayerPrefs.SetInt(AnimationSpeedPrefKey, _animationSpeed);
-            PlayerPrefs.Save();
             SetMessage("战斗动画速度：×" + _animationSpeed);
+        }
+
+        private void OnGameSettingsChanged()
+        {
+            _animationSpeed = GameSettings.AnimationSpeed;
+            if (_speedText != null)
+            {
+                _speedText.text = "动画 " + _animationSpeed + "×";
+            }
+        }
+
+        private void OnDestroy()
+        {
+            GameSettings.Changed -= OnGameSettingsChanged;
         }
 
         private List<UseAnimationStep> CollectUseSteps(int eventStart)
@@ -1070,7 +1149,6 @@ namespace BitRunner.Game
             }
 
             _tooltipPanel.SetActive(false);
-            ClearSynergyHighlights();
             BeginAnimationStep(0);
             return true;
         }
@@ -1196,14 +1274,12 @@ namespace BitRunner.Game
         {
             if (_tooltipPanel == null || _ended)
             {
-                ClearSynergyHighlights();
                 return;
             }
 
             if (Mouse.current != null && Mouse.current.leftButton.isPressed)
             {
                 _tooltipPanel.SetActive(false);
-                ClearSynergyHighlights();
                 return;
             }
 
@@ -1236,22 +1312,18 @@ namespace BitRunner.Game
             if (hovered == null)
             {
                 _tooltipPanel.SetActive(false);
-                ClearSynergyHighlights();
                 return;
             }
 
-            UpdateSynergyHighlights(hovered, hoveredItem);
             ItemDefinition definition = _catalog.Get(hoveredItem.DefinitionId);
             int damage = _engine.GetDamage(hovered.Owner, hoveredItem);
             int block = _engine.GetShield(hovered.Owner, hoveredItem);
-            SynergyBonus synergy = _engine.GetSynergyBonus(hovered.Owner, hoveredItem.InstanceId);
             _tooltipText.text = ItemText.Describe(
                 definition,
                 hoveredItem,
                 _engine.GetAmmoCount(hovered.Owner, definition),
                 damage,
-                block,
-                synergy);
+                block);
             const float tooltipWidth = 240f;
             _tooltipText.rectTransform.sizeDelta = new Vector2(tooltipWidth - 16f, 200f);
             float tooltipHeight = Mathf.Clamp(_tooltipText.preferredHeight + 14f, 120f, 300f);
@@ -1270,41 +1342,6 @@ namespace BitRunner.Game
             float y = Mathf.Clamp(local.y - 14f, -170f + tooltipHeight, 168f);
             _tooltipRect.anchoredPosition = new Vector2(x, y);
             _tooltipPanel.SetActive(true);
-        }
-
-        private void UpdateSynergyHighlights(BagBinding hovered, PlacedItem item)
-        {
-            if (hovered == null || item == null)
-            {
-                ClearSynergyHighlights();
-                return;
-            }
-
-            IReadOnlyList<int> linked = SynergyResolver.FindLinked(
-                hovered.Bag,
-                _catalog,
-                SynergyResolver.DefaultRules,
-                item.InstanceId);
-
-            for (int i = 0; i < _bags.Count; i++)
-            {
-                if (_bags[i] == hovered)
-                {
-                    _bags[i].View.SetHighlightedItems(linked);
-                }
-                else
-                {
-                    _bags[i].View.ClearHighlights();
-                }
-            }
-        }
-
-        private void ClearSynergyHighlights()
-        {
-            for (int i = 0; i < _bags.Count; i++)
-            {
-                _bags[i].View.ClearHighlights();
-            }
         }
 
         /// <summary>

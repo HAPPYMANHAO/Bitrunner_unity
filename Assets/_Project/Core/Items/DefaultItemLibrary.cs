@@ -1,10 +1,17 @@
-namespace BitRunner.Core
+﻿namespace BitRunner.Core
 {
     public static class DefaultItemLibrary
     {
         public static ItemCatalog CreateCatalog()
         {
-            return new ItemCatalog(new[]
+            var definitions = new System.Collections.Generic.List<ItemDefinition>(BaseDefinitions());
+            QuestItemLibrary.AppendDefinitions(definitions);
+            return new ItemCatalog(definitions);
+        }
+
+        private static ItemDefinition[] BaseDefinitions()
+        {
+            return new ItemDefinition[]
             {
                 new ItemDefinition
                 {
@@ -18,7 +25,8 @@ namespace BitRunner.Core
                     Tags = ItemTag.Blade,
                     Traits = new[] { new TraitRef(TraitCatalog.KeenEdge, 1) },
                     EnergyCost = 1,
-                    Damage = 5,
+                    Damage = 7,
+                                        MaxDurability = 10,
                     Value = 50
                 },
                 new ItemDefinition
@@ -34,6 +42,8 @@ namespace BitRunner.Core
                     EnergyCost = 1,
                     Cooldown = 1,
                     Damage = 5,
+                                        MaxDurability = 8,
+                    Traits = new[] { new TraitRef(TraitCatalog.KeenEdge, 1) },
                     Value = 25
                 },
                 new ItemDefinition
@@ -49,6 +59,7 @@ namespace BitRunner.Core
                     EnergyCost = 1,
                     Damage = 3,
                     MaxDurability = 6,
+                    Traits = new[] { new TraitRef(TraitCatalog.KeenEdge, 1) },
                     Value = 18
                 },
                 new ItemDefinition
@@ -79,9 +90,10 @@ namespace BitRunner.Core
                     Tags = ItemTag.Blade,
                     EnergyCost = 2,
                     Cooldown = 1,
-                    Damage = 8,
+                    Damage = 18,
                     Type = DamageType.Burn,
                     Traits = new[] { new TraitRef(TraitCatalog.OverheatStrike, 1) },
+                                        MaxDurability = 12,
                     Value = 120,
                     Description = "攻击时施加 1 层灼烧（持续 2 回合）。"
                 },
@@ -96,10 +108,12 @@ namespace BitRunner.Core
                     Shape = ItemShape.Parse("##"),
                     Tags = ItemTag.Chip | ItemTag.Projectile,
                     EnergyCost = 1,
-                    Damage = 4,
+                    Damage = 6,
                     Type = DamageType.Projectile,
                     AmmoItemId = "ammo",
                     AmmoPerUse = 1,
+                                        MaxDurability = 8,
+                    Traits = new[] { new TraitRef(TraitCatalog.OverclockFlow, 1) },
                     Value = 50
                 },
                 new ItemDefinition
@@ -114,11 +128,12 @@ namespace BitRunner.Core
                     Tags = ItemTag.Chip | ItemTag.Projectile,
                     EnergyCost = 1,
                     Cooldown = 1,
-                    Damage = 3,
+                    Damage = 4,
                     Type = DamageType.Projectile,
                     AmmoItemId = "ammo",
                     AmmoPerUse = 1,
                     MaxDurability = 6,
+                    Traits = new[] { new TraitRef(TraitCatalog.KeenEdge, 1) },
                     Value = 50
                 },
                 new ItemDefinition
@@ -136,6 +151,8 @@ namespace BitRunner.Core
                     ArmorProjectile = 8,
                     ArmorBurn = 2,
                     ArmorToxin = 1,
+                                        MaxDurability = 12,
+                    Traits = new[] { new TraitRef(TraitCatalog.HeavyArmor, 1) },
                     Value = 120
                 },
                 new ItemDefinition
@@ -154,6 +171,7 @@ namespace BitRunner.Core
                     ArmorBurn = 2,
                     ArmorToxin = 1,
                     MaxDurability = 8,
+                    Traits = new[] { new TraitRef(TraitCatalog.HeavyArmor, 1) },
                     Value = 50
                 },
                 new ItemDefinition
@@ -206,6 +224,7 @@ namespace BitRunner.Core
                     ArmorMelee = 3,
                     ArmorProjectile = 10,
                     Traits = new[] { new TraitRef(TraitCatalog.EvasionGuard, 1) },
+                                        MaxDurability = 8,
                     Value = 50,
                     Description = "获得 2 点护盾，并施加 1 层闪避（持续 2 回合）。"
                 },
@@ -283,6 +302,8 @@ namespace BitRunner.Core
                     ArmorBurn = 12,
                     ArmorMelee = 2,
                     ArmorToxin = 1,
+                                        MaxDurability = 14,
+                    Traits = new[] { new TraitRef(TraitCatalog.CoolantFlow, 2) },
                     Value = 120
                 },
                 new ItemDefinition
@@ -298,6 +319,8 @@ namespace BitRunner.Core
                     ArmorToxin = 12,
                     ArmorAsphyxiation = 8,
                     ArmorBurn = 2,
+                                        MaxDurability = 8,
+                    Traits = new[] { new TraitRef(TraitCatalog.ToxinScrub, 1) },
                     Value = 50
                 },
                 new ItemDefinition
@@ -312,6 +335,8 @@ namespace BitRunner.Core
                     EnergyCost = 0,
                     ArmorAsphyxiation = 12,
                     ArmorToxin = 6,
+                                        MaxDurability = 8,
+                    Traits = new[] { new TraitRef(TraitCatalog.LightFrame, 1) },
                     Value = 50
                 },
                 new ItemDefinition
@@ -326,8 +351,10 @@ namespace BitRunner.Core
                     Tags = ItemTag.Tool | ItemTag.Chip | ItemTag.Toxin | ItemTag.Projectile,
                     EnergyCost = 1,
                     Cooldown = 1,
-                    Damage = 3,
+                    Damage = 5,
                     Type = DamageType.Toxin,
+                                        MaxDurability = 4,
+                    Traits = new[] { new TraitRef(TraitCatalog.CorrosionDose, 1) },
                     Value = 50
                 },
                 new ItemDefinition
@@ -409,9 +436,10 @@ namespace BitRunner.Core
                     Tags = ItemTag.Toxin | ItemTag.Projectile | ItemTag.Chip,
                     EnergyCost = 1,
                     Cooldown = 1,
-                    Damage = 2,
+                    Damage = 4,
                     Type = DamageType.Toxin,
                     Traits = new[] { new TraitRef(TraitCatalog.CorrosionDose, 1) },
+                                        MaxDurability = 5,
                     Value = 120,
                     Description = "造成 2 点毒素伤害，并施加 2 层腐蚀（持续 3 回合）。"
                 },
@@ -515,8 +543,10 @@ namespace BitRunner.Core
                     Tags = ItemTag.Mechanical | ItemTag.Tool,
                     EnergyCost = 2,
                     Cooldown = 2,
-                    Damage = 5,
+                    Damage = 14,
                     Type = DamageType.Asphyxiation,
+                                        MaxDurability = 10,
+                    Traits = new[] { new TraitRef(TraitCatalog.ShortCircuitCharge, 1), new TraitRef(TraitCatalog.CoolantFlow, 1) },
                     Value = 120
                 },
                 new ItemDefinition
@@ -681,7 +711,7 @@ namespace BitRunner.Core
                 {
                     Id = "wild_bite",
                     Level = 1,
-                    DisplayName = "撕咬",
+                    DisplayName = "兽牙",
                     Category = ItemCategory.Weapon,
                     Activation = ItemActivation.Active,
                     Target = ItemTarget.Enemy,
@@ -689,6 +719,7 @@ namespace BitRunner.Core
                     Tags = ItemTag.Blade,
                     EnergyCost = 1,
                     Damage = 2,
+                                        MaxDurability = 0,
                     Value = 0
                 },
                 new ItemDefinition
@@ -1306,6 +1337,7 @@ namespace BitRunner.Core
                     ArmorToxin = 4,
                     ArmorAsphyxiation = 2,
                     MaxDurability = 21,
+                    Traits = new[] { new TraitRef(TraitCatalog.HeavyArmor, 2), new TraitRef(TraitCatalog.CoolantFlow, 2) },
                     Value = 290,
                     Description = "偏抛射与烧伤，克磁轨狙击手与等离子切割器。"
                 },
@@ -1809,7 +1841,7 @@ namespace BitRunner.Core
                         AlertDelta = 0
                     }
                 },
-            });
+            };
         }
     }
 }

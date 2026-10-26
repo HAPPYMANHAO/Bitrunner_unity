@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text;
 using BitRunner.Core;
 using UnityEngine;
@@ -54,10 +54,25 @@ namespace BitRunner.Game
 
         private RectTransform _canvasRect;
         private Text _hudText;
-        private Text _statusText;
-        private Text _progressLabel;
+        private Text _statsText;
         private RectTransform _progressFill;
-        private Text _messageText;
+        private Text _logText;
+        private readonly List<string> _logEntries = new List<string>();
+        private const int MaxLogEntries = 5;
+
+        // 中央艺术台：立绘位 + 台词。NPC 接通后这里换人，属性数字全部挪到背包左侧。
+        private RectTransform _artStage;
+        private Text _artTitle;
+        private Text _artSubtitle;
+        private Text _artDialogue;
+        private Text _artPortraitInitial;
+        private string _activeNpcId;
+        private string _npcLineOverride;
+        private float _npcLineUntil;
+        private NpcBagWindow _npcWindow;
+        private bool _npcModalPushed;
+        private NpcMarket _npcStocks;
+        private QuestLog _quests;
         private RectTransform _deployRect;
         private Image _deployImage;
         private Text _deployText;
@@ -135,30 +150,10 @@ namespace BitRunner.Game
         private RectTransform _commsRect;
         private BagView _commsView;
         private Text _commsInfo;
-        private RectTransform _commsTasksRect;
         private RectTransform _commsUpgradeRect;
         private Text _commsUpgradeText;
         private Image _commsUpgradeImage;
 
-        private GameObject _commsOverlay;
-        private Text _commsOverlayTitle;
-        private Text _commsOverlaySubtitle;
-        private readonly List<RectTransform> _commsNpcRows = new List<RectTransform>();
-        private readonly List<Text> _commsNpcLabels = new List<Text>();
-        private readonly List<Text> _commsNpcActions = new List<Text>();
-        private readonly List<RectTransform> _commsShopRows = new List<RectTransform>();
-        private readonly List<Text> _commsShopLabels = new List<Text>();
-        private readonly List<Text> _commsShopActions = new List<Text>();
-        private readonly List<RectTransform> _commsQuestRows = new List<RectTransform>();
-        private readonly List<Text> _commsQuestLabels = new List<Text>();
-        private readonly List<Text> _commsQuestActions = new List<Text>();
-        private readonly int[] _commsShopTargets = new int[3];
-        private readonly string[] _commsQuestTargets = new string[3];
-        private string _commsSelectedNpcId;
-        private string _commsHoverQuestId;
-        private Text _commsDetailTitle;
-        private Text _commsDetailBody;
-        private readonly List<string> _commsNpcOrder = new List<string>();
 
         private readonly List<BaseBagSource> _sources = new List<BaseBagSource>();        private BaseDragInteraction _drag;
         private FloatingWindowManager _containerWindows;
@@ -171,6 +166,12 @@ namespace BitRunner.Game
         private Text _endTitle;
         private Text _endSubtitle;
         private bool _ended;
+
+        /// <summary>基地里有任何状态变化就标脏，由 <see cref="TickAutoSave"/> 攒一小段再落盘。</summary>
+        private const float AutoSaveSeconds = 4f;
+
+        private bool _saveDirty;
+        private float _autoSaveTimer;
 
         private void Start()
         {
@@ -188,6 +189,8 @@ namespace BitRunner.Game
             _insurance = GameSession.Insurance;
             _rack = GameSession.Rack;
             _comms = GameSession.Comms;
+            _quests = GameSession.Quests;
+            _npcStocks = GameSession.NpcStocks;
             _bag = GameSession.PlayerBag;
             _stash = GameSession.Stash;
             _secure = GameSession.Secure;
@@ -198,15 +201,17 @@ namespace BitRunner.Game
             _canvasRect = (RectTransform)canvas.transform;
 
             BuildHud(canvas.transform);
+            BuildLeftStats(canvas.transform);
             BuildBagPanels(canvas.transform);
             BuildRightPanel(canvas.transform);
             BuildDeploy(canvas.transform);
-            BuildMessage(canvas.transform);
+            BuildArtStage(canvas.transform);
+            BuildLog(canvas.transform);
             BuildDrag();
             BuildTooltip(canvas.transform);
             BuildContainerWindows();
+            BuildNpcWindow(canvas.transform);
             BuildEndOverlay(canvas.transform);
-            BuildCommsOverlay(canvas.transform);
 
             SetActiveTab(BaseTab.Merchant, true);
             RefreshAll();
@@ -215,10 +220,57 @@ namespace BitRunner.Game
             {
                 ShowEnd();
             }
+
+            // 进入基地即落盘：这一笔同时覆盖「新开局第一次进基地」和「出征回来」。
+            SaveSystem.Save();
+            _saveDirty = false;
+        }
+
+        private void OnApplicationQuit()
+        {
+            SaveSystem.Save();
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused)
+            {
+                SaveSystem.Save();
+            }
+        }
+
+        private void TickAutoSave()
+        {
+            if (!_saveDirty)
+            {
+                return;
+            }
+
+            _autoSaveTimer -= Time.unscaledDeltaTime;
+            if (_autoSaveTimer > 0f)
+            {
+                return;
+            }
+
+            _saveDirty = false;
+            SaveSystem.Save();
         }
 
         private void Update()
         {
+            if (SettingsOverlay.BlocksInput)
+            {
+                return;
+            }
+
+            TickAutoSave();
+
+            if (!string.IsNullOrEmpty(_npcLineOverride) && Time.unscaledTime >= _npcLineUntil)
+            {
+                _npcLineOverride = null;
+                RefreshArtStage();
+            }
+
             Mouse mouse = Mouse.current;
             if (mouse == null)
             {
@@ -239,14 +291,8 @@ namespace BitRunner.Game
             }
 
             UpdateTooltip(screen);
-            UpdateCommsHover(screen);
 
             if (!mouse.leftButton.wasPressedThisFrame)
-            {
-                return;
-            }
-
-            if (HandleCommsOverlayClick(screen))
             {
                 return;
             }
@@ -417,12 +463,6 @@ namespace BitRunner.Game
 
             if (_activeTab == BaseTab.Comms)
             {
-                if (_commsTasksRect != null && RectTransformUtility.RectangleContainsScreenPoint(_commsTasksRect, screen, null))
-                {
-                    OpenCommsOverlay();
-                    return true;
-                }
-
                 if (_commsUpgradeRect != null && RectTransformUtility.RectangleContainsScreenPoint(_commsUpgradeRect, screen, null))
                 {
                     string error;
@@ -551,12 +591,15 @@ namespace BitRunner.Game
             RefreshInsurance();
             RefreshStorage();
             RefreshComms();
+            RefreshNpcBoard();
             RefreshDeploy();
 
-            if (_messageText != null)
-            {
-                _messageText.text = GameSession.LastMessage;
-            }
+            SetMessage(GameSession.LastMessage);
+
+            // 每次刷新都可能跟在一次状态变化之后（拖拽、买卖、升级、接任务）。
+            // 这里只标脏，真正写盘由 TickAutoSave 去抖——否则每拖一次就写一个几十 KB 的文件。
+            _saveDirty = true;
+            _autoSaveTimer = AutoSaveSeconds;
         }
 
         private void RefreshTabs()
@@ -741,555 +784,12 @@ namespace BitRunner.Game
 
             _commsInfo.text = "已联系 " + contacted.Count + " 人  Lv." + _comms.Level
                               + "  " + _comms.Width + "×" + _comms.Height
-                              + "\n" + names
+                              + "\n点击链路接通：" + names
                               + "\n升级：" + UpgradeText(_comms.UpgradeCost, _comms.UpgradeMaterialIds, _comms.CanUpgrade);
 
             bool max = !_comms.CanUpgrade;
             _commsUpgradeText.text = max ? "已满级" : "升级";
             _commsUpgradeImage.color = max ? DisabledColor : AccentColor;
-        }
-
-        private void OpenCommsOverlay()
-        {
-            if (_commsOverlay == null)
-            {
-                return;
-            }
-
-            IReadOnlyList<string> contacted = _comms.ContactedNpcIds;
-            if (contacted.Count == 0)
-            {
-                SetMessage("通讯中枢里没有任何上行链路。");
-                return;
-            }
-
-            if (string.IsNullOrEmpty(_commsSelectedNpcId) || !HasContacted(contacted, _commsSelectedNpcId))
-            {
-                _commsSelectedNpcId = contacted[0];
-            }
-
-            _commsHoverQuestId = null;
-            _commsOverlay.SetActive(true);
-            RefreshCommsOverlay();
-        }
-
-        private void CloseCommsOverlay()
-        {
-            _commsHoverQuestId = null;
-            if (_commsOverlay != null)
-            {
-                _commsOverlay.SetActive(false);
-            }
-        }
-
-        private static bool HasContacted(IReadOnlyList<string> contacted, string npcId)
-        {
-            for (int i = 0; i < contacted.Count; i++)
-            {
-                if (contacted[i] == npcId)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private void RefreshCommsOverlay()
-        {
-            if (_commsOverlay == null || !_commsOverlay.activeSelf)
-            {
-                return;
-            }
-
-            IReadOnlyList<string> contacted = _comms.ContactedNpcIds;
-            _commsNpcOrder.Clear();
-            for (int i = 0; i < contacted.Count; i++)
-            {
-                _commsNpcOrder.Add(contacted[i]);
-            }
-
-            for (int i = 0; i < _commsNpcRows.Count; i++)
-            {
-                bool visible = i < _commsNpcOrder.Count;
-                _commsNpcRows[i].gameObject.SetActive(visible);
-                if (!visible)
-                {
-                    continue;
-                }
-
-                NpcDefinition npc;
-                NpcLibrary.TryGet(_commsNpcOrder[i], out npc);
-                bool selected = npc != null && npc.Id == _commsSelectedNpcId;
-                _commsNpcLabels[i].text = (selected ? "▶ " : "   ") + npc.DisplayName;
-                _commsNpcLabels[i].color = selected ? AccentColor : TextColor;
-
-                int links = _comms.CountUplinks(npc.Id);
-                int npcActive = CountActiveQuests(npc.Id);
-                _commsNpcActions[i].text = "链" + links + " 任" + npcActive;
-                _commsNpcActions[i].color = npcActive < links
-                    ? new Color32(126, 196, 132, 255)
-                    : MutedColor;
-            }
-
-            if (string.IsNullOrEmpty(_commsSelectedNpcId))
-            {
-                return;
-            }
-
-            NpcDefinition current;
-            if (!NpcLibrary.TryGet(_commsSelectedNpcId, out current))
-            {
-                return;
-            }
-
-            int activeCount = CountActiveQuests(current.Id);
-            int npcLinks = _comms.CountUplinks(current.Id);
-            _commsOverlayTitle.text = current.DisplayName + "　" + current.Faction;
-            _commsOverlaySubtitle.text = "链路 " + _comms.TotalLinks
-                + "（空闲 " + _comms.FreeLinks + "/占用 " + _comms.LockedLinks + "）"
-                + " · 本联系人 " + npcLinks + " 条 · 任务 " + activeCount + "/" + npcLinks;
-
-            // ---------- 货架 ----------
-            BagInventory stock = GameSession.NpcStocks.StockFor(current.Id);
-            IReadOnlyList<PlacedItem> items = stock.Items;
-            for (int i = 0; i < _commsShopRows.Count; i++)
-            {
-                bool visible = i < items.Count;
-                _commsShopRows[i].gameObject.SetActive(visible);
-                if (!visible)
-                {
-                    _commsShopTargets[i] = 0;
-                    continue;
-                }
-
-                ItemDefinition definition = _catalog.Get(items[i].DefinitionId);
-                int price = NpcMarket.PriceOf(definition);
-                _commsShopLabels[i].text = definition.DisplayName + "　Lv." + definition.Level;
-                _commsShopActions[i].text = price + " bit";
-                _commsShopActions[i].color = GameSession.Campaign.Bit >= price ? AccentColor : DisabledColor;
-                _commsShopTargets[i] = items[i].InstanceId;
-            }
-
-            // ---------- 任务 ----------
-            List<QuestDefinition> quests = QuestLibrary.ForNpc(current.Id);
-            int row = 0;
-            for (int i = 0; i < quests.Count && row < _commsQuestRows.Count; i++)
-            {
-                QuestDefinition definition = quests[i];
-                QuestState state = GameSession.Quests.StateOf(definition.Id);
-
-                string action;
-                Color actionColor = AccentColor;
-                if (state == QuestState.Active || state == QuestState.Ready)
-                {
-                    QuestProgress progress = GameSession.Quests.Get(definition.Id);
-                    action = state == QuestState.Ready
-                        ? "领取"
-                        : (progress != null ? progress.Count : 0) + "/" + definition.TargetCount;
-                    if (state == QuestState.Ready)
-                    {
-                        actionColor = new Color32(126, 196, 132, 255);
-                    }
-                    else
-                    {
-                        actionColor = MutedColor;
-                    }
-                }
-                else if (state == QuestState.Claimed)
-                {
-                    continue;
-                }
-                else
-                {
-                    string reason;
-                    if (!GameSession.Quests.CanOffer(definition, _comms, QuestLog.Today(_campaign), out reason))
-                    {
-                        // 只显示「能接」和「冷却中」，前置没做的不显示，避免一次性甩十个任务给玩家。
-                        if (reason != null && reason.Contains("气头上"))
-                        {
-                            action = "冷却中";
-                            actionColor = DisabledColor;
-                        }
-                        else
-                        {
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        action = "接受";
-                    }
-                }
-
-                _commsQuestRows[row].gameObject.SetActive(true);
-                _commsQuestLabels[row].text = definition.Title;
-                _commsQuestActions[row].text = action;
-                _commsQuestActions[row].color = actionColor;
-                _commsQuestTargets[row] = definition.Id;
-                row++;
-            }
-
-            for (int i = row; i < _commsQuestRows.Count; i++)
-            {
-                _commsQuestRows[i].gameObject.SetActive(false);
-                _commsQuestTargets[i] = null;
-            }
-
-            if (!string.IsNullOrEmpty(_commsHoverQuestId) && !IsVisibleQuest(_commsHoverQuestId))
-            {
-                _commsHoverQuestId = null;
-            }
-
-            RefreshCommsDetail();
-        }
-
-        private int CountActiveQuests(string npcId)
-        {
-            int count = 0;
-            IReadOnlyList<QuestProgress> active = GameSession.Quests.ActiveQuests;
-            for (int i = 0; i < active.Count; i++)
-            {
-                QuestDefinition definition;
-                if (QuestLibrary.TryGet(active[i].QuestId, out definition) && definition.NpcId == npcId)
-                {
-                    count++;
-                }
-            }
-
-            return count;
-        }
-
-        private bool IsVisibleQuest(string questId)
-        {
-            for (int i = 0; i < _commsQuestRows.Count; i++)
-            {
-                if (_commsQuestRows[i].gameObject.activeSelf && _commsQuestTargets[i] == questId)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private void RefreshCommsDetail()
-        {
-            if (_commsDetailTitle == null || _commsDetailBody == null)
-            {
-                return;
-            }
-
-            NpcDefinition npc;
-            if (string.IsNullOrEmpty(_commsSelectedNpcId) || !NpcLibrary.TryGet(_commsSelectedNpcId, out npc))
-            {
-                _commsDetailTitle.text = "链路";
-                _commsDetailBody.text = "选择一位联系人。";
-                return;
-            }
-
-            int links = _comms.CountUplinks(npc.Id);
-            int locked = _comms.CountLockedUplinks(npc.Id);
-            QuestDefinition quest;
-            if (!string.IsNullOrEmpty(_commsHoverQuestId)
-                && QuestLibrary.TryGet(_commsHoverQuestId, out quest)
-                && quest.NpcId == npc.Id)
-            {
-                RefreshQuestDetail(npc, quest, links, locked);
-                return;
-            }
-
-            var builder = new System.Text.StringBuilder();
-            builder.Append(npc.Greeting).Append("\n\n");
-            builder.Append("链路：").Append(links).Append(" 条 · 占用 ").Append(locked)
-                .Append(" · 空闲 ").Append(Mathf.Max(0, links - locked)).Append('\n');
-            builder.Append("一条链路一次只承载一个任务；同一位联系人的多条链路可以并行多个任务。")
-                .Append("升级通讯中枢或拿到重复链路，就能增加并行数。\n\n");
-
-            builder.Append("当前任务：\n");
-            int active = 0;
-            IReadOnlyList<QuestProgress> quests = GameSession.Quests.ActiveQuests;
-            for (int i = 0; i < quests.Count; i++)
-            {
-                QuestDefinition definition;
-                if (!QuestLibrary.TryGet(quests[i].QuestId, out definition) || definition.NpcId != npc.Id)
-                {
-                    continue;
-                }
-
-                builder.Append("· ").Append(definition.Title).Append("  ")
-                    .Append(quests[i].Count).Append("/").Append(definition.TargetCount)
-                    .Append(quests[i].State == QuestState.Ready ? "（可领取）" : string.Empty)
-                    .Append('\n');
-                active++;
-            }
-
-            if (active == 0)
-            {
-                builder.Append("· 暂无挂载任务\n");
-            }
-
-            builder.Append("\n可接任务：\n");
-            int available = 0;
-            for (int i = 0; i < _commsQuestTargets.Length; i++)
-            {
-                if (!_commsQuestRows[i].gameObject.activeSelf || string.IsNullOrEmpty(_commsQuestTargets[i]))
-                {
-                    continue;
-                }
-
-                QuestDefinition definition;
-                if (!QuestLibrary.TryGet(_commsQuestTargets[i], out definition))
-                {
-                    continue;
-                }
-
-                QuestState state = GameSession.Quests.StateOf(definition.Id);
-                if (state == QuestState.Active || state == QuestState.Ready || state == QuestState.Claimed)
-                {
-                    continue;
-                }
-
-                builder.Append("· ").Append(definition.Title)
-                    .Append(" — ").Append(definition.ObjectiveText(_catalog))
-                    .Append("（").Append(RewardText(definition)).Append("）\n");
-                available++;
-            }
-
-            if (available == 0)
-            {
-                builder.Append("· 暂无\n");
-            }
-
-            builder.Append("\n悬停任务行查看目标、奖励与链路占用。");
-            _commsDetailTitle.text = npc.DisplayName + " // " + npc.Faction;
-            _commsDetailBody.text = builder.ToString();
-        }
-
-        private void RefreshQuestDetail(NpcDefinition npc, QuestDefinition quest, int links, int locked)
-        {
-            QuestState state = GameSession.Quests.StateOf(quest.Id);
-            QuestProgress progress = GameSession.Quests.Get(quest.Id);
-            var builder = new System.Text.StringBuilder();
-            if (!string.IsNullOrEmpty(quest.Description))
-            {
-                builder.Append(quest.Description).Append("\n\n");
-            }
-
-            builder.Append("目标：").Append(quest.ObjectiveText(_catalog)).Append('\n');
-            if (progress != null && (state == QuestState.Active || state == QuestState.Ready))
-            {
-                builder.Append("进度：").Append(progress.Count).Append("/").Append(quest.TargetCount).Append('\n');
-            }
-
-            builder.Append("时限：").Append(quest.TimeLimitDays > 0 ? quest.TimeLimitDays + " 天" : "不限").Append('\n');
-            builder.Append("奖励：").Append(RewardText(quest)).Append('\n');
-            if (!string.IsNullOrEmpty(quest.RequiresQuestId))
-            {
-                QuestDefinition required;
-                builder.Append("前置：").Append(QuestLibrary.TryGet(quest.RequiresQuestId, out required) ? required.Title : quest.RequiresQuestId).Append('\n');
-            }
-
-            builder.Append("链路：接受后占用 1 条（本联系人空闲 ")
-                .Append(Mathf.Max(0, links - locked)).Append("/").Append(links).Append("）\n");
-            builder.Append("状态：").Append(QuestStateName(state)).Append('\n');
-            builder.Append(state == QuestState.Ready
-                ? "点击任务行领取奖励；领取后链路解锁。"
-                : state == QuestState.Active
-                    ? "点击任务行查看进度；完成目标后回基地领取。"
-                    : "点击任务行接受；同一联系人有多少条空闲链路，就能并行多少个任务。");
-            _commsDetailTitle.text = quest.Title + " // " + npc.DisplayName;
-            _commsDetailBody.text = builder.ToString();
-        }
-
-        private string RewardText(QuestDefinition quest)
-        {
-            var parts = new List<string>();
-            if (quest.RewardBit > 0)
-            {
-                parts.Add(quest.RewardBit + " bit");
-            }
-
-            if (quest.RewardItemIds != null)
-            {
-                for (int i = 0; i < quest.RewardItemIds.Length; i++)
-                {
-                    ItemDefinition definition = _catalog.Get(quest.RewardItemIds[i]);
-                    parts.Add(definition != null ? definition.DisplayName : quest.RewardItemIds[i]);
-                }
-            }
-
-            if (!string.IsNullOrEmpty(quest.RewardUplinkItemId))
-            {
-                ItemDefinition uplink = _catalog.Get(quest.RewardUplinkItemId);
-                parts.Add((uplink != null ? uplink.DisplayName : quest.RewardUplinkItemId) + "（新链路）");
-            }
-
-            return parts.Count == 0 ? "无" : string.Join(" + ", parts.ToArray());
-        }
-
-        private static string QuestStateName(QuestState state)
-        {
-            switch (state)
-            {
-                case QuestState.Active:
-                    return "进行中";
-                case QuestState.Ready:
-                    return "可领取";
-                case QuestState.Claimed:
-                    return "已完成";
-                case QuestState.Failed:
-                    return "已失败";
-                default:
-                    return "可接受";
-            }
-        }
-
-        private void UpdateCommsHover(Vector2 screen)
-        {
-            if (_commsOverlay == null || !_commsOverlay.activeSelf)
-            {
-                return;
-            }
-
-            string hover = null;
-            for (int i = 0; i < _commsQuestRows.Count; i++)
-            {
-                if (_commsQuestRows[i].gameObject.activeSelf
-                    && RectTransformUtility.RectangleContainsScreenPoint(_commsQuestRows[i], screen, null))
-                {
-                    hover = _commsQuestTargets[i];
-                    break;
-                }
-            }
-
-            if (hover != _commsHoverQuestId)
-            {
-                _commsHoverQuestId = hover;
-                RefreshCommsDetail();
-            }
-        }
-
-        /// <summary>弹层开着时，点击优先给弹层处理，避免透过去点到基地面板。</summary>
-        private bool HandleCommsOverlayClick(Vector2 screen)
-        {
-            if (_commsOverlay == null || !_commsOverlay.activeSelf)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < _commsNpcRows.Count; i++)
-            {
-                if (!_commsNpcRows[i].gameObject.activeSelf)
-                {
-                    continue;
-                }
-
-                if (RectTransformUtility.RectangleContainsScreenPoint(_commsNpcRows[i], screen, null))
-                {
-                    _commsSelectedNpcId = _commsNpcOrder[i];
-                    _commsHoverQuestId = null;
-                    RefreshCommsOverlay();
-                    return true;
-                }
-            }
-
-            for (int i = 0; i < _commsShopRows.Count; i++)
-            {
-                if (!_commsShopRows[i].gameObject.activeSelf)
-                {
-                    continue;
-                }
-
-                if (RectTransformUtility.RectangleContainsScreenPoint(_commsShopRows[i], screen, null))
-                {
-                    string error;
-                    if (GameSession.BuyFromNpc(_commsSelectedNpcId, _commsShopTargets[i], out error))
-                    {
-                        SetMessage("买入一件。");
-                    }
-                    else
-                    {
-                        SetMessage(error);
-                    }
-
-                    // 买的东西进背包/仓库，bit 从仓库的钱堆里扣——
-                    // 这些视图都要跟着动，只刷 HUD 会留下「300 bit 还在」的假象。
-                    RefreshAll();
-                    RefreshCommsOverlay();
-                    return true;
-                }
-            }
-
-            for (int i = 0; i < _commsQuestRows.Count; i++)
-            {
-                if (!_commsQuestRows[i].gameObject.activeSelf)
-                {
-                    continue;
-                }
-
-                if (RectTransformUtility.RectangleContainsScreenPoint(_commsQuestRows[i], screen, null))
-                {
-                    ActivateQuestRow(_commsQuestTargets[i]);
-                    return true;
-                }
-            }
-
-            CloseCommsOverlay();
-            return true;
-        }
-
-        private void ActivateQuestRow(string questId)
-        {
-            if (string.IsNullOrEmpty(questId))
-            {
-                return;
-            }
-
-            QuestDefinition definition;
-            if (!QuestLibrary.TryGet(questId, out definition))
-            {
-                return;
-            }
-
-            QuestState state = GameSession.Quests.StateOf(questId);
-            string error;
-            if (state == QuestState.Active)
-            {
-                QuestProgress progress = GameSession.Quests.Get(questId);
-                SetMessage("「" + definition.Title + "」"
-                           + (progress != null ? progress.Count : 0) + "/" + definition.TargetCount
-                           + "：" + definition.ObjectiveText(_catalog));
-                return;
-            }
-
-            if (state == QuestState.Ready)
-            {
-                if (GameSession.ClaimQuest(questId, out error))
-                {
-                    SetMessage("完成「" + definition.Title + "」。");
-                    RefreshAll();
-                }
-                else
-                {
-                    SetMessage(error);
-                }
-
-                RefreshCommsOverlay();
-                return;
-            }
-
-            if (GameSession.AcceptQuest(questId, out error))
-            {
-                SetMessage("接取「" + definition.Title + "」。上行链路已锁定。");
-                RefreshAll();
-            }
-            else
-            {
-                SetMessage(error);
-            }
-
-            RefreshCommsOverlay();
         }
 
         private void RefreshDeploy()
@@ -1311,7 +811,7 @@ namespace BitRunner.Game
             }
 
             _deployImage.color = AccentColor;
-            _deployText.text = "下潜 · " + plan.Name + " · 第 " + _campaign.Day + "/7 天";
+            _deployText.text = "下潜 · " + plan.Name;
         }
 
         private void SetActiveTab(BaseTab tab, bool force = false)
@@ -1336,6 +836,7 @@ namespace BitRunner.Game
             RefreshInsurance();
             RefreshStorage();
             RefreshComms();
+            RefreshNpcBoard();
             RefreshDeploy();
         }
 
@@ -1352,11 +853,27 @@ namespace BitRunner.Game
             }
             else if (_activeTab == BaseTab.Pod)
             {
-                _sources.Add(new BaseBagSource { Name = "POD", Bag = _pod.Grid, Rect = _podRect, View = _podView });
+                // 潜网舱只收关卡密钥：任务契约、装备、材料都不该占船位。
+                _sources.Add(new BaseBagSource
+                {
+                    Name = "POD",
+                    Bag = _pod.Grid,
+                    Rect = _podRect,
+                    View = _podView,
+                    ItemFilter = definition => definition.Category == ItemCategory.Key
+                });
             }
             else if (_activeTab == BaseTab.Craft)
             {
-                _sources.Add(new BaseBagSource { Name = "CRAFT", Bag = _craft.Grid, Rect = _craftRect, View = _craftView });
+                // 制作台只收材料：配方按材料匹配，别的放进去只会白占格子。
+                _sources.Add(new BaseBagSource
+                {
+                    Name = "CRAFT",
+                    Bag = _craft.Grid,
+                    Rect = _craftRect,
+                    View = _craftView,
+                    ItemFilter = definition => definition.Category == ItemCategory.Material
+                });
             }
             else if (_activeTab == BaseTab.Cpu)
             {
@@ -1464,26 +981,29 @@ namespace BitRunner.Game
 
         private void RefreshHud()
         {
-            _hudText.text = "第 " + _campaign.Week + " 周"
-                            + "\n应缴 " + _campaign.CurrentDue + "    bit " + _campaign.Bit
-                            + "\n已缴 " + _campaign.TotalPaid;
+            _hudText.text = "第 " + _campaign.Week + " 周 · 第 " + _campaign.Day + "/7 天"
+                            + "\n应缴 " + _campaign.CurrentDue + "   已缴 " + _campaign.TotalPaid
+                            + "\nbit " + _campaign.Bit;
 
             _hudText.color = _campaign.IsActive && _campaign.Bit < _campaign.CurrentDue
                 ? WarningColor
                 : TextColor;
 
-            if (_campaign.IsActive)
+            if (_statsText != null)
             {
-                _statusText.text = "距缴款 " + _campaign.DaysRemaining + " 次探索"
-                                   + "  ·  生命 " + GameSession.ExpeditionMaxHp
-                                   + "\n背包 " + _bag.FreeCellCount + " 格 · 仓库 " + _stash.FreeCellCount + " 格"
-                                   + " · 能量 " + (GameSession.BaseEnergyPerTurn + GameSession.CpuModifiers.BaseEnergy);
-            }
-            else
-            {
-                _statusText.text = _campaign.Status == CampaignStatus.Victory
-                    ? EndingLabel(_campaign.Ending)
-                    : "债务违约";
+                if (_campaign.IsActive)
+                {
+                    _statsText.text = "生命 " + GameSession.ExpeditionMaxHp
+                                      + "\n背包 " + _bag.FreeCellCount + " 格"
+                                      + "\n仓库 " + _stash.FreeCellCount + " 格"
+                                      + "\n能量 " + (GameSession.BaseEnergyPerTurn + GameSession.CpuModifiers.BaseEnergy);
+                }
+                else
+                {
+                    _statsText.text = _campaign.Status == CampaignStatus.Victory
+                        ? EndingLabel(_campaign.Ending)
+                        : "债务违约";
+                }
             }
 
             if (_secureTitle != null)
@@ -1491,14 +1011,13 @@ namespace BitRunner.Game
                 _secureTitle.text = "保险箱 " + _secure.Count + "/" + _secure.Grid.Capacity;
             }
 
-            if (_progressFill != null && _progressLabel != null)
+            if (_progressFill != null)
             {
                 float ratio = _campaign.CurrentDue <= 0
                     ? 1f
                     : Mathf.Clamp01((float)_campaign.Bit / _campaign.CurrentDue);
-                _progressFill.sizeDelta = new Vector2(238f * ratio, 6f);
+                _progressFill.sizeDelta = new Vector2(150f * ratio, 5f);
                 _progressFill.GetComponent<Image>().color = ratio >= 1f ? AccentColor : WarningColor;
-                _progressLabel.text = "已筹 " + _campaign.Bit + " / " + _campaign.CurrentDue + " bit";
             }
         }
 
@@ -1551,17 +1070,42 @@ namespace BitRunner.Game
 
         private void SetMessage(string text)
         {
-            if (_messageText != null)
+            if (string.IsNullOrEmpty(text))
             {
-                _messageText.text = text;
+                return;
+            }
+
+            if (_logEntries.Count > 0 && _logEntries[_logEntries.Count - 1] == text)
+            {
+                return;
+            }
+
+            _logEntries.Add(text);
+            while (_logEntries.Count > MaxLogEntries)
+            {
+                _logEntries.RemoveAt(0);
+            }
+
+            if (_logText != null)
+            {
+                _logText.text = string.Join("\n", _logEntries.ToArray());
             }
         }
 
+        /// <summary>
+        /// 债务只在这一个面板出现：周/天、应缴/已缴、bit 与进度条。
+        /// 左栏是角色属性（生命/空间/能量），不再重复任何债务数字。
+        /// </summary>
         private void BuildHud(Transform canvas)
         {
-            RectTransform panel = CreateCenteredPanel(canvas, "Hud", new Vector2(-227f, 148f), new Vector2(170f, 56f), PanelColor);
+            RectTransform panel = CreateCenteredPanel(canvas, "Hud", new Vector2(-227f, 141f), new Vector2(170f, 74f), PanelColor);
             AddBorder(panel, new Color32(67, 59, 47, 255));
-            _hudText = CreateText(panel, "Stats", string.Empty, 10, TextColor, new Vector2(10f, -6f), new Vector2(150f, 46f), TextAnchor.UpperLeft);
+            _hudText = CreateText(panel, "Stats", string.Empty, 10, TextColor, new Vector2(10f, -6f), new Vector2(150f, 48f), TextAnchor.UpperLeft);
+
+            RectTransform bg = CreateAnchoredPanel(panel, "DebtBar", new Vector2(10f, -58f), new Vector2(150f, 5f), new Color32(38, 44, 54, 255));
+            bg.GetComponent<Image>().raycastTarget = false;
+            _progressFill = CreateAnchoredPanel(bg, "Fill", Vector2.zero, new Vector2(0f, 5f), AccentColor);
+            _progressFill.GetComponent<Image>().raycastTarget = false;
         }
 
         private void BuildBagPanels(Transform canvas)
@@ -1802,104 +1346,10 @@ namespace BitRunner.Game
 
             _commsInfo = CreateText(content, "Info", string.Empty, 8, MutedColor, new Vector2(8f, -72f), new Vector2(154f, 40f), TextAnchor.UpperLeft);
 
-            _commsTasksRect = CreateButton(content, "CommsTasks", "联系", new Vector2(8f, -114f), new Vector2(73f, 22f), new Color32(38, 44, 52, 255));
-            _commsTasksRect.Find("Label").GetComponent<Text>().text = "联系";
-
             RectTransform upgrade = CreateButton(content, "CommsUpgrade", "升级", new Vector2(89f, -114f), new Vector2(73f, 22f), AccentColor);
             _commsUpgradeImage = upgrade.GetComponent<Image>();
             _commsUpgradeText = upgrade.Find("Label").GetComponent<Text>();
             _commsUpgradeRect = upgrade;
-        }
-
-        /// <summary>
-        /// 通讯弹层：左边是「谁在线」，右边是选中那位的货架与任务。
-        /// 行数都是固定的（4 / 3 / 3），用不到的 SetActive(false)——
-        /// 运行时增删 GameObject 会让点击区域和刷新逻辑对不上。
-        /// </summary>
-        private void BuildCommsOverlay(Transform canvas)
-        {
-            _commsOverlay = new GameObject("CommsOverlay", typeof(RectTransform), typeof(Image));
-            _commsOverlay.transform.SetParent(canvas, false);
-
-            var rect = (RectTransform)_commsOverlay.transform;
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = Vector2.zero;
-            rect.offsetMax = Vector2.zero;
-            _commsOverlay.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.78f);
-
-            RectTransform box = CreateCenteredPanel(
-                _commsOverlay.transform, "Box", Vector2.zero, new Vector2(560f, 300f), PanelColor);
-            AddBorder(box, new Color32(67, 59, 47, 255));
-
-            CreateText(box, "Header", "通讯中枢 // COMMS", 9, new Color32(164, 146, 112, 255),
-                new Vector2(10f, -6f), new Vector2(300f, 12f), TextAnchor.UpperLeft);
-
-            _commsOverlayTitle = CreateText(box, "Title", string.Empty, 8, TextColor,
-                new Vector2(10f, -22f), new Vector2(250f, 12f), TextAnchor.UpperLeft);
-            _commsOverlaySubtitle = CreateText(box, "Subtitle", string.Empty, 8, MutedColor,
-                new Vector2(10f, -36f), new Vector2(250f, 12f), TextAnchor.UpperLeft);
-
-            // 四位联系人，每人一行。
-            for (int i = 0; i < 4; i++)
-            {
-                float y = -52f - i * 17f;
-                RectTransform row = CreateRow(box, "Npc" + i, new Vector2(10f, y), new Vector2(250f, 16f));
-                _commsNpcRows.Add(row);
-                _commsNpcLabels.Add(row.Find("Label").GetComponent<Text>());
-                _commsNpcActions.Add(row.Find("Action").GetComponent<Text>());
-            }
-
-            CreateText(box, "ShopHeader", "货架（点击购买）", 8, new Color32(164, 146, 112, 255),
-                new Vector2(10f, -122f), new Vector2(250f, 12f), TextAnchor.UpperLeft);
-
-            for (int i = 0; i < 3; i++)
-            {
-                float y = -136f - i * 17f;
-                RectTransform row = CreateRow(box, "Shop" + i, new Vector2(10f, y), new Vector2(250f, 16f));
-                _commsShopRows.Add(row);
-                _commsShopLabels.Add(row.Find("Label").GetComponent<Text>());
-                _commsShopActions.Add(row.Find("Action").GetComponent<Text>());
-            }
-
-            CreateText(box, "QuestHeader", "任务（悬停查看详情）", 8, new Color32(164, 146, 112, 255),
-                new Vector2(10f, -190f), new Vector2(250f, 12f), TextAnchor.UpperLeft);
-
-            for (int i = 0; i < 3; i++)
-            {
-                float y = -204f - i * 17f;
-                RectTransform row = CreateRow(box, "Quest" + i, new Vector2(10f, y), new Vector2(250f, 16f));
-                _commsQuestRows.Add(row);
-                _commsQuestLabels.Add(row.Find("Label").GetComponent<Text>());
-                _commsQuestActions.Add(row.Find("Action").GetComponent<Text>());
-            }
-
-            RectTransform detail = CreateAnchoredPanel(box, "Detail", new Vector2(272f, -8f), new Vector2(276f, 284f), new Color32(22, 26, 32, 255));
-            _commsDetailTitle = CreateText(detail, "Title", string.Empty, 10, TextColor,
-                new Vector2(8f, -6f), new Vector2(260f, 14f), TextAnchor.UpperLeft);
-            _commsDetailBody = CreateText(detail, "Body", string.Empty, 8, MutedColor,
-                new Vector2(8f, -24f), new Vector2(260f, 252f), TextAnchor.UpperLeft);
-            _commsDetailBody.verticalOverflow = VerticalWrapMode.Truncate;
-
-            CreateCenteredText(box, "Hint", "点击空白处关闭", 8, MutedColor,
-                new Vector2(-150f, -140f), new Vector2(120f, 12f));
-
-            _commsOverlay.SetActive(false);
-        }
-
-        private static RectTransform CreateRow(Transform parent, string name, Vector2 topLeft, Vector2 size)
-        {
-            RectTransform row = CreateAnchoredPanel(parent, name, topLeft, size, new Color32(32, 37, 44, 255));
-
-            Text label = CreateText(row, "Label", string.Empty, 8, TextColor,
-                new Vector2(4f, 0f), new Vector2(size.x - 90f, size.y), TextAnchor.MiddleLeft);
-            label.raycastTarget = false;
-
-            Text action = CreateText(row, "Action", string.Empty, 8, AccentColor,
-                new Vector2(size.x - 86f, 0f), new Vector2(82f, size.y), TextAnchor.MiddleRight);
-            action.raycastTarget = false;
-
-            return row;
         }
 
         private void BuildDeploy(Transform canvas)        {
@@ -1909,27 +1359,328 @@ namespace BitRunner.Game
             _deployText = CreateCenteredText(_deployRect, "Label", "出征", 11, TextColor, Vector2.zero, new Vector2(156f, 26f));
         }
 
-        private void BuildMessage(Transform canvas)
+        /// <summary>
+        /// 背包左侧的窄属性栏。中央整块让给立绘/台词，所以战斗与空间相关的数字只放这里；
+        /// 债务信息仍留在左上角 HUD，避免同一组数字出现两次。
+        /// </summary>
+        private void BuildLeftStats(Transform canvas)
         {
-            RectTransform window = CreateCenteredPanel(canvas, "ViewWindow", new Vector2(0f, 68f), new Vector2(270f, 150f), WindowColor);
-            AddBorder(window, new Color32(67, 59, 47, 255));
+            RectTransform panel = CreateCenteredPanel(canvas, "LeftStats", new Vector2(-276f, -108f), new Vector2(84f, 124f), PanelColor);
+            panel.gameObject.AddComponent<RectMask2D>();
+            _statsText = CreateText(panel, "Stats", string.Empty, 8, TextColor, new Vector2(6f, -6f), new Vector2(72f, 104f), TextAnchor.UpperLeft);
+        }
 
-            CreateText(window, "Header", "基础潜网 // BASE LINK", 9, new Color32(164, 146, 112, 255), new Vector2(10f, -5f), new Vector2(240f, 12f), TextAnchor.UpperLeft);
+        /// <summary>
+        /// 中央艺术台：顶部台词 + 左下立绘位。未接通联系人时显示基地提示。
+        /// 立绘先用名字首字兜底，接美术时替换 Portrait 下的 Image 即可。
+        /// </summary>
+        private void BuildArtStage(Transform canvas)
+        {
+            _artStage = CreateCenteredPanel(canvas, "ArtStage", new Vector2(0f, 50f), new Vector2(270f, 170f), WindowColor);
+            AddBorder(_artStage, new Color32(67, 59, 47, 255));
+            _artStage.GetComponent<Image>().raycastTarget = false;
 
-            RectTransform screen = CreateAnchoredPanel(window, "Screen", new Vector2(8f, -22f), new Vector2(254f, 120f), WindowScreenColor);
-            screen.GetComponent<Image>().raycastTarget = false;
+            _artTitle = CreateText(_artStage, "Title", "基地", 10, TextColor, new Vector2(10f, -6f), new Vector2(250f, 13f), TextAnchor.UpperLeft);
+            _artSubtitle = CreateText(_artStage, "Subtitle", "基础潜网 // BASE LINK", 7, new Color32(164, 146, 112, 255), new Vector2(10f, -20f), new Vector2(250f, 11f), TextAnchor.UpperLeft);
+            _artDialogue = CreateText(_artStage, "Dialogue", string.Empty, 8, MutedColor, new Vector2(10f, -34f), new Vector2(250f, 26f), TextAnchor.UpperLeft);
 
-            RectTransform rule = CreateAnchoredPanel(screen, "Rule", new Vector2(8f, -46f), new Vector2(238f, 1f), new Color32(46, 53, 63, 255));
-            rule.GetComponent<Image>().raycastTarget = false;
+            RectTransform portrait = CreateCenteredPanel(_artStage, "Portrait", new Vector2(-58f, -32f), new Vector2(84f, 84f), new Color32(28, 33, 41, 255));
+            portrait.GetComponent<Image>().raycastTarget = false;
+            AddBorder(portrait, new Color32(52, 60, 72, 255));
+            _artPortraitInitial = CreateCenteredText(portrait, "Initial", string.Empty, 30, new Color32(120, 132, 150, 255), Vector2.zero, new Vector2(80f, 80f));
 
-            _statusText = CreateText(screen, "Status", string.Empty, 10, TextColor, new Vector2(8f, -8f), new Vector2(238f, 34f), TextAnchor.UpperLeft);
-            _messageText = CreateText(screen, "Message", "欢迎回到基础潜网。", 8, MutedColor, new Vector2(8f, -56f), new Vector2(238f, 32f), TextAnchor.UpperLeft);
+            RefreshArtStage();
+        }
 
-            _progressLabel = CreateText(screen, "ProgressLabel", string.Empty, 8, MutedColor, new Vector2(8f, -92f), new Vector2(238f, 10f), TextAnchor.UpperLeft);
-            RectTransform progressBg = CreateAnchoredPanel(screen, "ProgressBg", new Vector2(8f, -106f), new Vector2(238f, 6f), new Color32(38, 44, 54, 255));
-            progressBg.GetComponent<Image>().raycastTarget = false;
-            _progressFill = CreateAnchoredPanel(progressBg, "Fill", Vector2.zero, new Vector2(0f, 6f), AccentColor);
-            _progressFill.GetComponent<Image>().raycastTarget = false;
+        /// <summary>
+        /// 消息日志：贴在仓库右侧（工作台右边、设施面板下方），保留最近几条记录。
+        /// 中央区域整块留给立绘，不再被单行提示占用。
+        /// </summary>
+        private void BuildLog(Transform canvas)
+        {
+            RectTransform panel = CreateCenteredPanel(canvas, "Log", new Vector2(241f, -108f), new Vector2(150f, 124f), new Color32(22, 26, 32, 255));
+            AddBorder(panel, new Color32(50, 58, 68, 255));
+            panel.GetComponent<Image>().raycastTarget = false;
+            panel.gameObject.AddComponent<RectMask2D>();
+            CreateText(panel, "Header", "LOG", 7, new Color32(164, 146, 112, 255), new Vector2(8f, -6f), new Vector2(134f, 10f), TextAnchor.UpperLeft);
+            _logText = CreateText(panel, "Lines", string.Empty, 7, MutedColor, new Vector2(8f, -20f), new Vector2(134f, 98f), TextAnchor.UpperLeft);
+        }
+
+        private void BuildNpcWindow(Transform canvas)
+        {
+            var go = new GameObject("NpcBagWindow", typeof(RectTransform), typeof(Image), typeof(NpcBagWindow));
+            go.transform.SetParent(canvas, false);
+            _npcWindow = go.GetComponent<NpcBagWindow>();
+            _npcWindow.Initialize(_canvasRect, _catalog, _palette, _ => CloseNpcWindow());
+            _npcWindow.SetPosition(new Vector2(60f, 40f));
+            go.SetActive(false);
+        }
+
+        /// <summary>点击通讯网格里的上行链路 = 接通。中心画面与柜台窗口都跟着这个人换。</summary>
+        private void ConnectNpc(NpcDefinition npc)
+        {
+            if (npc == null || _npcWindow == null)
+            {
+                return;
+            }
+
+            _activeNpcId = npc.Id;
+            _npcLineOverride = null;
+            NpcBagFlow.SyncNpc(npc, _npcStocks, _quests, _comms, QuestLog.Today(_campaign), _bag, _stash, _catalog);
+            _npcWindow.Bind(_npcStocks.StockFor(npc.Id), npc.DisplayName, "拖出＝买 / 接单　拖入＝交付");
+            _npcWindow.gameObject.SetActive(true);
+            SettingsOverlay.PushModal();
+            _npcModalPushed = true;
+
+            if (_drag != null)
+            {
+                _drag.RemovePersistentSource("NPCBAG");
+                _drag.AddPersistentSource(_npcWindow.Source);
+            }
+
+            RefreshArtStage();
+            SetMessage("已接通 " + npc.DisplayName + "。");
+        }
+
+        private void CloseNpcWindow()
+        {
+            _activeNpcId = null;
+            _npcLineOverride = null;
+            if (_npcModalPushed)
+            {
+                SettingsOverlay.PopModal();
+                _npcModalPushed = false;
+            }
+
+            if (_npcWindow != null)
+            {
+                _npcWindow.gameObject.SetActive(false);
+            }
+
+            if (_drag != null)
+            {
+                _drag.RemovePersistentSource("NPCBAG");
+            }
+
+            RefreshArtStage();
+        }
+
+        private void RefreshNpcBoard()
+        {
+            if (_npcWindow == null || !_npcWindow.gameObject.activeSelf || string.IsNullOrEmpty(_activeNpcId))
+            {
+                return;
+            }
+
+            NpcDefinition npc;
+            if (!NpcLibrary.TryGet(_activeNpcId, out npc))
+            {
+                CloseNpcWindow();
+                return;
+            }
+
+            NpcBagFlow.SyncNpc(npc, _npcStocks, _quests, _comms, QuestLog.Today(_campaign), _bag, _stash, _catalog);
+            _npcWindow.Refresh();
+            RefreshArtStage();
+        }
+
+        private void RefreshArtStage()
+        {
+            if (_artTitle == null)
+            {
+                return;
+            }
+
+            NpcDefinition npc = null;
+            if (!string.IsNullOrEmpty(_activeNpcId))
+            {
+                NpcLibrary.TryGet(_activeNpcId, out npc);
+            }
+
+            if (npc == null)
+            {
+                _artTitle.text = "基地";
+                _artSubtitle.text = "基础潜网 // BASE LINK";
+                _artDialogue.text = "点击通讯页里的上行链路，接通联系人。";
+                if (_artPortraitInitial != null)
+                {
+                    _artPortraitInitial.text = string.Empty;
+                }
+
+                return;
+            }
+
+            _artTitle.text = npc.DisplayName;
+            _artSubtitle.text = npc.Faction;
+            _artDialogue.text = CurrentNpcLine(npc);
+            if (_artPortraitInitial != null)
+            {
+                _artPortraitInitial.text = ShortNpcName(npc.DisplayName);
+            }
+        }
+
+        private string CurrentNpcLine(NpcDefinition npc)
+        {
+            if (!string.IsNullOrEmpty(_npcLineOverride) && Time.unscaledTime < _npcLineUntil)
+            {
+                return _npcLineOverride;
+            }
+
+            _npcLineOverride = null;
+            List<QuestDefinition> quests = QuestLibrary.ForNpc(npc.Id);
+            bool ready = false;
+            bool active = false;
+            for (int i = 0; i < quests.Count; i++)
+            {
+                QuestState state = _quests.StateOf(quests[i].Id);
+                if (state == QuestState.Ready)
+                {
+                    ready = true;
+                }
+                else if (state == QuestState.Active)
+                {
+                    active = true;
+                }
+            }
+
+            if (ready)
+            {
+                return "办妥了就把它拿回来，我只看结果。";
+            }
+
+            if (active)
+            {
+                return "契约在你手上。别死在外面。";
+            }
+
+            return npc.Greeting;
+        }
+
+        private void SetNpcLine(string line)
+        {
+            if (string.IsNullOrEmpty(line))
+            {
+                return;
+            }
+
+            _npcLineOverride = line;
+            _npcLineUntil = Time.unscaledTime + 4.5f;
+            RefreshArtStage();
+        }
+
+        private static string ShortNpcName(string displayName)
+        {
+            if (string.IsNullOrEmpty(displayName))
+            {
+                return string.Empty;
+            }
+
+            int dot = displayName.LastIndexOf('\u00b7');
+            string name = dot >= 0 && dot + 1 < displayName.Length
+                ? displayName.Substring(dot + 1).Trim()
+                : displayName;
+            return name.Length == 0 ? string.Empty : name.Substring(0, 1);
+        }
+
+        private BagInventory NpcBoard()
+        {
+            if (string.IsNullOrEmpty(_activeNpcId) || _npcStocks == null)
+            {
+                return null;
+            }
+
+            return _npcStocks.StockFor(_activeNpcId);
+        }
+
+        /// <summary>
+        /// NPC 柜台的拖拽落点。两个方向都走这里，返回 true 表示「已处理，不要再移动物品」。
+        /// 拖出：商品=买、契约=接单；拖入：契约=交付，其它一律拒绝。
+        /// </summary>
+        private bool TryNpcDrop(BaseBagSource source, PlacedItem item, BaseBagSource target)
+        {
+            if (source == null || target == null || item == null)
+            {
+                return false;
+            }
+
+            BagInventory board = NpcBoard();
+            if (board == null)
+            {
+                return false;
+            }
+
+            NpcDefinition npc;
+            if (!NpcLibrary.TryGet(_activeNpcId, out npc))
+            {
+                return false;
+            }
+
+            ItemDefinition definition = _catalog.Get(item.DefinitionId);
+            bool isCard = definition.Category == ItemCategory.Quest;
+
+            if (source.Bag == board && target.Bag != board)
+            {
+                if (target.Bag != _bag && target.Bag != _stash)
+                {
+                    SetMessage("拖到背包或仓库才能拿走。");
+                    return true;
+                }
+
+                string message;
+                bool ok = isCard
+                    ? NpcBagFlow.TryAccept(npc, _npcStocks, _quests, _comms, QuestLog.Today(_campaign), item.InstanceId, target.Bag, _catalog, out message)
+                    : NpcBagFlow.TryBuy(npc, _npcStocks, item.InstanceId, _campaign, target.Bag, _catalog, out message);
+
+                SetMessage(message);
+                SetNpcLine(message);
+                if (ok)
+                {
+                    RefreshAll();
+                }
+
+                return true;
+            }
+
+            if (target.Bag == board && source.Bag != board)
+            {
+                if (source.Bag != _bag && source.Bag != _stash)
+                {
+                    SetMessage("从背包或仓库里拿契约来交付。");
+                    return true;
+                }
+
+                if (!isCard)
+                {
+                    SetMessage("他不收这个。");
+                    SetNpcLine("我只做契约和买卖，别的东西别往柜台上放。");
+                    return true;
+                }
+
+                string message;
+                bool turnedIn = NpcBagFlow.TryTurnIn(
+                    npc,
+                    _npcStocks,
+                    _quests,
+                    _comms,
+                    _campaign,
+                    item.InstanceId,
+                    source.Bag,
+                    _bag,
+                    _stash,
+                    _catalog,
+                    out message);
+
+                SetMessage(message);
+                SetNpcLine(message);
+                if (turnedIn)
+                {
+                    RefreshAll();
+                }
+
+                return true;
+            }
+
+            return false;
         }
 
         private void BuildDrag()
@@ -1938,6 +1689,9 @@ namespace BitRunner.Game
 
             _drag = gameObject.AddComponent<BaseDragInteraction>();
             _drag.Initialize(_sources, _catalog, _merchant, _campaign, _palette, _canvasRect, null, _discardBinRect);
+
+            // NPC 柜台：拖出=买/接单，拖入=交付。全部在特殊落点里处理，不走常规移动。
+            _drag.TrySpecialDrop = TryNpcDrop;
 
             // 被任务占用的上行链路必须留在通讯中枢里：拖拽、快速移动、右键旋转全部拦下。
             _drag.CanTake = (source, item) =>
@@ -1975,57 +1729,6 @@ namespace BitRunner.Game
         }
 
 
-        private void UpdateSynergyHighlights(
-            IReadOnlyList<BaseBagSource> sources,
-            BaseBagSource hovered,
-            PlacedItem item)
-        {
-            if (hovered == null || item == null)
-            {
-                ClearSynergyHighlights(sources);
-                return;
-            }
-
-            IReadOnlyList<int> linked = SynergyResolver.FindLinked(
-                hovered.Bag,
-                _catalog,
-                SynergyResolver.DefaultRules,
-                item.InstanceId);
-
-            for (int i = 0; i < sources.Count; i++)
-            {
-                if (sources[i] == null || sources[i].View == null)
-                {
-                    continue;
-                }
-
-                if (sources[i] == hovered)
-                {
-                    sources[i].View.SetHighlightedItems(linked);
-                }
-                else
-                {
-                    sources[i].View.ClearHighlights();
-                }
-            }
-        }
-
-        private static void ClearSynergyHighlights(IReadOnlyList<BaseBagSource> sources)
-        {
-            if (sources == null)
-            {
-                return;
-            }
-
-            for (int i = 0; i < sources.Count; i++)
-            {
-                if (sources[i] != null && sources[i].View != null)
-                {
-                    sources[i].View.ClearHighlights();
-                }
-            }
-        }
-
         private void BuildTooltip(Transform canvas)
         {
             _tooltipPanel = new GameObject("Tooltip", typeof(RectTransform), typeof(Image));
@@ -2046,20 +1749,8 @@ namespace BitRunner.Game
         private void UpdateTooltip(Vector2 screen)
         {
             IReadOnlyList<BaseBagSource> tooltipSources = _drag != null ? _drag.Sources : _sources;
-            if (_commsOverlay != null && _commsOverlay.activeSelf)
-            {
-                ClearSynergyHighlights(tooltipSources);
-                if (_tooltipPanel != null)
-                {
-                    _tooltipPanel.SetActive(false);
-                }
-
-                return;
-            }
-
             if (_tooltipPanel == null || _ended || (_drag != null && _drag.IsDragging))
             {
-                ClearSynergyHighlights(tooltipSources);
                 if (_tooltipPanel != null)
                 {
                     _tooltipPanel.SetActive(false);
@@ -2096,11 +1787,9 @@ namespace BitRunner.Game
             if (hoveredItem == null)
             {
                 _tooltipPanel.SetActive(false);
-                ClearSynergyHighlights(tooltipSources);
                 return;
             }
 
-            UpdateSynergyHighlights(tooltipSources, hoveredSource, hoveredItem);
             ItemDefinition definition = _catalog.Get(hoveredItem.DefinitionId);
             string text = ItemText.Describe(definition, hoveredItem, _bag.CountOf(definition.AmmoItemId));
             if (hoveredFromMerchant)
@@ -2173,6 +1862,36 @@ namespace BitRunner.Game
             }
 
             ItemDefinition definition = _catalog.Get(item.DefinitionId);
+
+            if (source.Bag == _comms.Grid)
+            {
+                NpcDefinition contact;
+                if (NpcLibrary.TryFindByUplink(definition.Id, out contact))
+                {
+                    ConnectNpc(contact);
+                }
+                else
+                {
+                    SetMessage("通讯中枢只收上行链路。");
+                }
+
+                return;
+            }
+
+            if (definition.Category == ItemCategory.Quest)
+            {
+                SetMessage("把契约拖到联系人的柜台上交付。");
+                return;
+            }
+
+            if (source.Name == "NPCBAG")
+            {
+                SetMessage(definition.Category == ItemCategory.Quest
+                    ? "把契约拖到背包或仓库，就算接单。"
+                    : "拖到背包或仓库买下，" + NpcMarket.PriceOf(definition) + " bit。");
+                return;
+            }
+
             if (source.IsMerchant)
             {
                 SetMessage("拖入仓库购买。");
@@ -2283,8 +2002,7 @@ namespace BitRunner.Game
             _drag.TryActivateItem = (source, instanceId) =>
                 _containerWindows != null && _containerWindows.TryOpen(source, instanceId);
             _drag.PointerBlocked = screen =>
-                (_containerWindows != null && _containerWindows.IsPointerOverChrome(screen))
-                || (_commsOverlay != null && _commsOverlay.activeSelf);
+                _containerWindows != null && _containerWindows.IsPointerOverChrome(screen);
         }
 
         private void BuildEndOverlay(Transform canvas)
@@ -2330,6 +2048,7 @@ namespace BitRunner.Game
 
             RectTransform background = CreateCenteredPanel(canvas.transform, "Background", Vector2.zero, new Vector2(640f, 360f), BackgroundColor);
             background.GetComponent<Image>().raycastTarget = false;
+            BackgroundArt.Apply(background);
 
             return canvas;
         }
@@ -2500,6 +2219,11 @@ namespace BitRunner.Game
                     return new Color32(200, 170, 120, 255);
                 case ItemCategory.Container:
                     return new Color32(150, 118, 82, 255);
+
+                // 契约用近白的羊皮纸色：它既不是战利品也不是材料，
+                // 一眼要在柜台/背包里被认出来。
+                case ItemCategory.Quest:
+                    return new Color32(226, 214, 186, 255);
 
                 // 上行链路刻意不用 Key 的紫色：它们是两种完全不同的东西，
                 // 同色会让人以为「通讯链路能开潜网舱」。

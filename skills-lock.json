@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "unity-game-dev": {
+      "source": "gigio1023/unity-game-dev-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "44697823ecaf89dece5e3117c9af752871d751436bf24134d323a3877809c87a"
+    },
+    "unity-mcp-orchestrator": {
+      "source": "CoplayDev/unity-mcp",
+      "sourceType": "github",
+      "skillPath": "unity-mcp-skill/SKILL.md",
+      "computedHash": "df4cb2ec97ba07b4ce7c48c43c9a6eb5d171519a08ee9e969db4313dac21218b"
+    }
+  }
+}

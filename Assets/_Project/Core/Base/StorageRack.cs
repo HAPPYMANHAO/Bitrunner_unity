@@ -21,6 +21,11 @@ namespace BitRunner.Core
             Level = 1;
         }
 
+        internal void RestoreLevel(int level)
+        {
+            Level = level < 1 ? 1 : (level > MaxLevel ? MaxLevel : level);
+        }
+
         public static int HeightForLevel(int level)
         {
             switch (level)

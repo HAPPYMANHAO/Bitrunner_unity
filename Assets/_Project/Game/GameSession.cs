@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using BitRunner.Core;
 using UnityEngine;
 
@@ -130,6 +130,90 @@ namespace BitRunner.Game
             }
         }
 
+        /// <summary>把当前静态状态打包成快照，供存档层序列化。</summary>
+        public static GameSnapshot CreateSnapshot()
+        {
+            EnsureInitialized();
+            return new GameSnapshot
+            {
+                Campaign = Campaign,
+                Merchant = Merchant,
+                Pod = Pod,
+                Mine = Mine,
+                Craft = Craft,
+                Cpu = Cpu,
+                Insurance = Insurance,
+                Rack = Rack,
+                Comms = Comms,
+                Quests = Quests,
+                NpcStocks = NpcStocks,
+                Stash = Stash,
+                PlayerBag = PlayerBag,
+                Secure = Secure
+            };
+        }
+
+        public static SaveData ExportSave()
+        {
+            return GameSave.Capture(CreateSnapshot());
+        }
+
+        /// <summary>
+        /// 用存档数据整体替换运行时状态。失败时不改动任何现有字段（<see cref="GameSave.TryRestore"/>
+        /// 先构建完整的新对象，成功后才赋值），所以调用方可以安全地回退到新开局。
+        /// </summary>
+        public static bool ApplySaveData(SaveData data, out string error)
+        {
+            ItemCatalog catalog = DefaultItemLibrary.CreateCatalog();
+
+            GameSnapshot restored;
+            if (!GameSave.TryRestore(data, catalog, out restored, out error))
+            {
+                return false;
+            }
+
+            Catalog = catalog;
+            _traitEngine = new TraitEngine(catalog);
+
+            Campaign = restored.Campaign;
+            Merchant = restored.Merchant;
+            Pod = restored.Pod;
+            Mine = restored.Mine;
+            Craft = restored.Craft;
+            Cpu = restored.Cpu;
+            Insurance = restored.Insurance;
+            Rack = restored.Rack;
+            Comms = restored.Comms;
+            Quests = restored.Quests;
+            NpcStocks = restored.NpcStocks;
+            Stash = restored.Stash;
+            PlayerBag = restored.PlayerBag;
+            Secure = restored.Secure;
+
+            // 存档只发生在基地，所以探索态的运行时字段一律清空。
+            Scenario = null;
+            CurrentDiveName = null;
+            ExpeditionAssistIds.Clear();
+            ExpeditionHp = 0;
+            EncountersCleared = 0;
+            LootTaken = 0;
+            HasPendingEncounter = false;
+            PendingEnemyId = null;
+            LastAttrition = default(ExpeditionAttrition.Report);
+
+            if (restored.Warnings.Count > 0)
+            {
+                LastMessage = "存档已载入；" + string.Join(" ", restored.Warnings.ToArray());
+            }
+            else
+            {
+                LastMessage = "存档已载入：第 " + Campaign.Week + " 周，第 " + Campaign.Day + "/7 天。";
+            }
+
+            error = null;
+            return true;
+        }
+
         public static void EnsureMerchantStockForDay()
         {
             EnsureInitialized();
@@ -182,6 +266,9 @@ namespace BitRunner.Game
                 // 先判超时，再重算持有类目标——顺序反了的话，超时任务会先被刷成 Ready。
                 Quests.Tick(Comms, today);
                 Quests.RefreshStatic(Catalog, Stash, PlayerBag, Campaign);
+
+                // 柜台上的契约卡要与任务状态保持一致（可接的摆出来，已接的收回玩家背包）。
+                NpcBagFlow.SyncAll(NpcStocks, Quests, Comms, Campaign, PlayerBag, Stash, Catalog);
             }
         }
 
@@ -209,7 +296,7 @@ namespace BitRunner.Game
             Place(Pod.Grid, "dive_basic", 0, 0);
             EnsureMerchantStockForDay();
             EnsureFacilitiesForDay();
-            LastMessage = "本周应缴 " + Campaign.CurrentDue + " bit，7 次探索内筹齐。";
+            LastMessage = "7 次探索内筹齐本周应缴，账目看左上角。";
 
             Place(PlayerBag, "plate", 0, 0);
             Place(PlayerBag, "blade", 2, 0);
@@ -264,6 +351,10 @@ namespace BitRunner.Game
                 return false;
             }
 
+            // 出征前自动存档：此刻背包、仓库、密钥都还是出发时的样子。
+            // 探索中不落盘——中途退出会回到这次出征之前的基地。
+            SaveSystem.Save();
+
             if (!Campaign.BeginExpedition())
             {
                 LastMessage = Campaign.Status == CampaignStatus.Active
@@ -271,7 +362,6 @@ namespace BitRunner.Game
                     : "战役已结束。";
                 return false;
             }
-
             // 按地点档位重排掉落池：低档物品不会在高级地点刷出，高档物品也不会在开局就掉。
             plan.LootPool = LootTierTable.Expand(plan.LootPool, Catalog, plan.TierMin, plan.TierWeights);
 

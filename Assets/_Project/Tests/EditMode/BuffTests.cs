@@ -1,4 +1,4 @@
-using BitRunner.Core;
+﻿using BitRunner.Core;
 using NUnit.Framework;
 
 namespace BitRunner.Tests
@@ -175,8 +175,11 @@ namespace BitRunner.Tests
             Assert.AreEqual(0, player.GetStatusStacks(StatusType.Overload));
         }
 
+        /// <summary>
+        /// 标签只是标签：同行的瞄具芯片不会给武器加伤害。
+        /// </summary>
         [Test]
-        public void TargetingArrayBoostsWeaponInSameRow()
+        public void TagsDoNotBoostDamageInSameRow()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 CombatTestFactory.Weapon("blade", 5, 1, 0, ItemTag.Blade, "##"),
@@ -198,7 +201,7 @@ namespace BitRunner.Tests
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
             PlacedItem blade = CombatTestFactory.FindItem(player, "blade");
 
-            Assert.AreEqual(6, engine.GetDamage(player, blade));
+            Assert.AreEqual(5, engine.GetDamage(player, blade));
         }
 
         [Test]
@@ -228,8 +231,12 @@ namespace BitRunner.Tests
             Assert.AreEqual(2, enemy.GetStatusStacks(StatusType.Corrosion));
         }
 
+        /// <summary>
+        /// 标签只是标签：相邻的战利品不会给护栏加护盾。
+        /// 数值只能来自物品自身的定义或词条。
+        /// </summary>
         [Test]
-        public void FenceModuleCountsAdjacentLoot()
+        public void TagsDoNotAddShield()
         {
             ItemCatalog catalog = CombatTestFactory.Catalog(
                 new ItemDefinition
@@ -252,7 +259,7 @@ namespace BitRunner.Tests
 
             var engine = new CombatEngine(player, new[] { enemy }, catalog);
 
-            Assert.AreEqual(2, engine.GetShield(player, fence));
+            Assert.AreEqual(1, engine.GetShield(player, fence));
         }
     }
 }

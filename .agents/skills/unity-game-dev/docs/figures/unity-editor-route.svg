@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 432" width="720" height="432" role="img" aria-labelledby="title desc">
+  <title id="title">Unity 6 Editor automation route, before and after</title>
+  <desc id="desc">Before: an MCP client reaches the Unity MCP Server in com.unity.ai.assistant through the stdio relay and local IPC. After: an agent drives the Unity CLI by shell or stdio, which reaches the com.unity.pipeline package on localhost; the deprecated Assistant MCP path stays only for a project already connected through it.</desc>
+  <defs>
+    <marker id="arrow-ink" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse" overflow="visible">
+      <path d="M1 1 L7 4 L1 7" fill="none" stroke="#CCCCCC" stroke-width="1.2"/>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse" overflow="visible">
+      <path d="M1 1 L7 4 L1 7" fill="none" stroke="#8386EB" stroke-width="1.2"/>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse" overflow="visible">
+      <path d="M1 1 L7 4 L1 7" fill="none" stroke="#929591" stroke-width="1.2"/>
+    </marker>
+  </defs>
+  <style>
+    .entity { font-family: "IBM Plex Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 14px; fill: #FFFFFF; text-anchor: middle; }
+    .sub { font-family: "IBM Plex Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #CCCCCC; text-anchor: middle; }
+    .edge { font-family: "IBM Plex Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #CCCCCC; }
+    .panel { font-family: "IBM Plex Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #929591; letter-spacing: 0.04em; }
+    .hot-text { fill: #FFBDA1; }
+    .muted-text { fill: #929591; }
+    .box { fill: #0D0D0D; stroke: #CCCCCC; stroke-width: 1.2; }
+    .box-accent { fill: #0D0D0D; stroke: #8386EB; stroke-width: 1.2; }
+    .box-muted { fill: #0D0D0D; stroke: #929591; stroke-width: 1.2; stroke-dasharray: 2 2; }
+    .box-hot { fill: #0D0D0D; stroke: #FF9365; stroke-width: 1.2; }
+    .flow { fill: none; stroke: #CCCCCC; stroke-width: 1.2; }
+    .flow-accent { fill: none; stroke: #8386EB; stroke-width: 1.2; }
+    .flow-secondary { fill: none; stroke: #929591; stroke-width: 1.2; stroke-dasharray: 2 2; }
+    .rule { fill: none; stroke: #929591; stroke-width: 1.2; stroke-dasharray: 2 4; }
+  </style>
+  <rect width="720" height="432" rx="16" fill="#0D0D0D"/>
+  <text id="before-label" class="panel" x="24" y="36" text-anchor="start">BEFORE (main)</text>
+  <text id="before-condition" class="panel" x="24" y="64" text-anchor="start">Unity 6 project</text>
+  <g id="before-client">
+    <rect class="box" x="24" y="76" width="112" height="56" rx="16"/>
+    <text class="entity" x="80" y="108">MCP client</text>
+  </g>
+  <g id="before-bridge">
+    <rect class="box" x="252" y="76" width="168" height="56" rx="16"/>
+    <text class="entity" x="336" y="99">stdio relay</text>
+    <text class="sub" x="336" y="117">~/.unity/relay</text>
+  </g>
+  <g id="before-editor">
+    <rect class="box" x="516" y="76" width="180" height="56" rx="16"/>
+    <text class="entity" x="606" y="99">Unity MCP Server</text>
+    <text class="sub" x="606" y="117">com.unity.ai.assistant</text>
+  </g>
+  <g id="before-client-to-bridge">
+    <path class="flow" d="M136 104 H251" marker-end="url(#arrow-ink)"/>
+    <text class="edge" x="194.0" y="96" text-anchor="middle">stdio</text>
+  </g>
+  <g id="before-bridge-to-editor">
+    <path class="flow" d="M420 104 H515" marker-end="url(#arrow-ink)"/>
+    <text class="edge" x="468.0" y="96" text-anchor="middle">local IPC</text>
+  </g>
+  <path id="divider" class="rule" d="M24 160 H696"/>
+  <text id="after-label" class="panel" x="24" y="196" text-anchor="start">AFTER</text>
+  <text id="after-cli-condition" class="panel" x="24" y="224" text-anchor="start">Unity 6.0+ project</text>
+  <g id="after-cli-client">
+    <rect class="box-accent" x="24" y="236" width="112" height="56" rx="16"/>
+    <text class="entity" x="80" y="268">agent</text>
+  </g>
+  <g id="after-cli-bridge">
+    <rect class="box-accent" x="252" y="236" width="168" height="56" rx="16"/>
+    <text class="entity" x="336" y="259">unity CLI</text>
+    <text class="sub" x="336" y="277">command, eval, mcp</text>
+  </g>
+  <g id="after-cli-editor">
+    <rect class="box-accent" x="516" y="236" width="180" height="56" rx="16"/>
+    <text class="entity" x="606" y="259">Unity Pipeline</text>
+    <text class="sub" x="606" y="277">com.unity.pipeline</text>
+  </g>
+  <g id="after-cli-client-to-bridge">
+    <path class="flow" d="M136 264 H251" marker-end="url(#arrow-ink)"/>
+    <text class="edge" x="194.0" y="256" text-anchor="middle">shell or stdio</text>
+  </g>
+  <g id="after-cli-bridge-to-editor">
+    <path class="flow" d="M420 264 H515" marker-end="url(#arrow-ink)"/>
+    <text class="edge" x="468.0" y="256" text-anchor="middle">localhost</text>
+  </g>
+  <text id="after-mcp-condition" class="panel" x="24" y="332" text-anchor="start">only if already on Assistant MCP (deprecated adapter)</text>
+  <g id="after-mcp-client">
+    <rect class="box-muted" x="24" y="344" width="112" height="56" rx="16"/>
+    <text class="entity muted-text" x="80" y="376">MCP client</text>
+  </g>
+  <g id="after-mcp-bridge">
+    <rect class="box-muted" x="252" y="344" width="168" height="56" rx="16"/>
+    <text class="entity muted-text" x="336" y="367">stdio relay</text>
+    <text class="sub muted-text" x="336" y="385">~/.unity/relay</text>
+  </g>
+  <g id="after-mcp-editor">
+    <rect class="box-muted" x="516" y="344" width="180" height="56" rx="16"/>
+    <text class="entity muted-text" x="606" y="367">Unity MCP Server</text>
+    <text class="sub muted-text" x="606" y="385">com.unity.ai.assistant</text>
+  </g>
+  <g id="after-mcp-client-to-bridge">
+    <path class="flow-secondary" d="M136 372 H251" marker-end="url(#arrow-muted)"/>
+    <text class="edge" x="194.0" y="364" text-anchor="middle">stdio</text>
+  </g>
+  <g id="after-mcp-bridge-to-editor">
+    <path class="flow-secondary" d="M420 372 H515" marker-end="url(#arrow-muted)"/>
+    <text class="edge" x="468.0" y="364" text-anchor="middle">local IPC</text>
+  </g>
+</svg>

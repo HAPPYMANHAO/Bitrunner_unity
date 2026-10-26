@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace BitRunner.Core
@@ -6,7 +6,6 @@ namespace BitRunner.Core
     public sealed class CombatEngine
     {
         private readonly ItemCatalog _catalog;
-        private readonly IReadOnlyList<SynergyRule> _synergyRules;
         private readonly TraitEngine _traits;
         private readonly List<CombatActor> _enemies;
         private readonly List<CombatEvent> _events = new List<CombatEvent>();
@@ -15,12 +14,7 @@ namespace BitRunner.Core
         private bool _retreating;
 
         public CombatEngine(CombatActor player, IEnumerable<CombatActor> enemies, ItemCatalog catalog)
-            : this(player, enemies, catalog, SynergyResolver.DefaultRules)
-        {
-        }
-
-        public CombatEngine(CombatActor player, IEnumerable<CombatActor> enemies, ItemCatalog catalog, IReadOnlyList<SynergyRule> synergyRules)
-            : this(player, enemies, catalog, synergyRules, null)
+            : this(player, enemies, catalog, null)
         {
         }
 
@@ -28,7 +22,6 @@ namespace BitRunner.Core
             CombatActor player,
             IEnumerable<CombatActor> enemies,
             ItemCatalog catalog,
-            IReadOnlyList<SynergyRule> synergyRules,
             TraitCatalog traitCatalog)
         {
             if (player == null)
@@ -54,7 +47,7 @@ namespace BitRunner.Core
             }
 
             _catalog = catalog;
-            _synergyRules = synergyRules ?? SynergyResolver.DefaultRules;
+            // 只有词条产生效果；标签不再参与任何计算。
             _traits = new TraitEngine(catalog, traitCatalog);
             Phase = CombatPhase.NotStarted;
         }
@@ -567,8 +560,7 @@ namespace BitRunner.Core
                 return 0;
             }
 
-            SynergyBonus bonus = GetSynergyBonus(actor, item.InstanceId);
-            int damage = definition.Damage + bonus.Damage;
+            int damage = definition.Damage;
 
             if (actor != null)
             {
@@ -632,8 +624,7 @@ namespace BitRunner.Core
                 return 0;
             }
 
-            SynergyBonus bonus = GetSynergyBonus(actor, item.InstanceId);
-            int shield = definition.Shield + bonus.Shield;
+            int shield = definition.Shield;
             if (actor != null)
             {
                 shield += actor.GetStatusStacks(StatusType.Coolant);
@@ -666,8 +657,7 @@ namespace BitRunner.Core
                 return 0;
             }
 
-            SynergyBonus bonus = GetSynergyBonus(actor, item.InstanceId);
-            int remaining = definition.Cooldown - bonus.CooldownReduction;
+            int remaining = definition.Cooldown;
             return remaining <= 0 ? 0 : remaining + 1;
         }
 
@@ -678,22 +668,7 @@ namespace BitRunner.Core
                 return 0;
             }
 
-            Dictionary<int, SynergyBonus> bonuses = SynergyResolver.Resolve(actor.Bag, _catalog, _synergyRules);
-            int total = _traits.GetPassiveEnergy(actor);
-
-            IReadOnlyList<PlacedItem> items = actor.Bag.Items;
-            for (int i = 0; i < items.Count; i++)
-            {
-                ItemDefinition definition;
-                if (!_catalog.TryGet(items[i].DefinitionId, out definition) || definition.Activation != ItemActivation.Passive)
-                {
-                    continue;
-                }
-
-                total += SynergyResolver.Get(bonuses, items[i].InstanceId).Energy;
-            }
-
-            return total;
+            return _traits.GetPassiveEnergy(actor);
         }
 
         public CombatActor FindActor(string actorId)
@@ -1117,17 +1092,6 @@ namespace BitRunner.Core
                 default:
                     return "失败";
             }
-        }
-
-        public SynergyBonus GetSynergyBonus(CombatActor actor, int instanceId)
-        {
-            if (actor == null)
-            {
-                return default(SynergyBonus);
-            }
-
-            Dictionary<int, SynergyBonus> bonuses = SynergyResolver.Resolve(actor.Bag, _catalog, _synergyRules);
-            return SynergyResolver.Get(bonuses, instanceId);
         }
 
         private void Emit(

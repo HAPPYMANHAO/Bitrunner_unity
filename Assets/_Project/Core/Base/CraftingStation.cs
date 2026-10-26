@@ -269,6 +269,20 @@ namespace BitRunner.Core
             Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
         }
 
+        internal void RestoreLevel(int level)
+        {
+            Level = level < 1 ? 1 : (level > MaxLevel ? MaxLevel : level);
+            Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
+        }
+
+        internal void RestoreGrid(BagInventory grid)
+        {
+            if (grid != null)
+            {
+                Grid = grid;
+            }
+        }
+
         /// <summary>工作台宽度：2 / 3 / 3 / 4 / 5。宽度只增不减，方便一次摆更多材料。</summary>
         public static int WidthForLevel(int level)
         {

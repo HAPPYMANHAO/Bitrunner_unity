@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using BitRunner.Core;
 using UnityEngine;
@@ -238,6 +238,11 @@ namespace BitRunner.Game
 
         private void Update()
         {
+            if (SettingsOverlay.BlocksInput)
+            {
+                return;
+            }
+
             Mouse mouse = Mouse.current;
             if (mouse == null)
             {
@@ -756,11 +761,22 @@ namespace BitRunner.Game
                 {
                     message = "请先清空容器再丢弃。";
                 }
-                else if (definition.Category == ItemCategory.Key || definition.Category == ItemCategory.Currency)
+                else if (definition.Category == ItemCategory.Key
+                         || definition.Category == ItemCategory.Currency
+                         || definition.Category == ItemCategory.Quest)
                 {
-                    message = definition.Category == ItemCategory.Key
-                        ? "潜网密钥不能丢弃。"
-                        : "比特不能丢弃。";
+                    if (definition.Category == ItemCategory.Key)
+                    {
+                        message = "潜网密钥不能丢弃。";
+                    }
+                    else if (definition.Category == ItemCategory.Quest)
+                    {
+                        message = "任务契约不能丢弃，拿回去交。";
+                    }
+                    else
+                    {
+                        message = "比特不能丢弃。";
+                    }
                 }
                 else
                 {

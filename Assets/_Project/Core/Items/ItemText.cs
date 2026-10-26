@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text;
 
 namespace BitRunner.Core
@@ -153,8 +153,7 @@ namespace BitRunner.Core
             PlacedItem item = null,
             int ammoCount = -1,
             int damageOverride = -1,
-            int shieldOverride = -1,
-            SynergyBonus synergy = default(SynergyBonus))
+            int shieldOverride = -1)
         {
             if (definition == null)
             {
@@ -300,43 +299,10 @@ namespace BitRunner.Core
                 }
             }
 
+            // 标签只是标签：给玩家分类/筛选用，不产生任何数值。
             if (definition.Tags != ItemTag.None)
             {
                 builder.Append('\n').Append("标签：").Append(TagList(definition.Tags));
-                var tagEffects = new List<string>();
-                AppendTagEffects(tagEffects, definition);
-                if (tagEffects.Count > 0)
-                {
-                    builder.Append('\n').Append("标签效果：");
-                    for (int i = 0; i < tagEffects.Count; i++)
-                    {
-                        builder.Append('\n').Append("· ").Append(tagEffects[i]);
-                    }
-                }
-            }
-
-            if (synergy.Damage > 0 || synergy.Shield > 0 || synergy.Energy > 0 || synergy.CooldownReduction > 0)
-            {
-                builder.Append('\n').Append("当前协同：");
-                if (synergy.Damage > 0)
-                {
-                    builder.Append(" +").Append(synergy.Damage).Append(" 伤害");
-                }
-
-                if (synergy.Shield > 0)
-                {
-                    builder.Append(" +").Append(synergy.Shield).Append(" 护盾");
-                }
-
-                if (synergy.Energy > 0)
-                {
-                    builder.Append(" +").Append(synergy.Energy).Append(" 能量");
-                }
-
-                if (synergy.CooldownReduction > 0)
-                {
-                    builder.Append(" -").Append(synergy.CooldownReduction).Append(" 冷却");
-                }
             }
 
             return builder.ToString();
@@ -424,13 +390,6 @@ namespace BitRunner.Core
             }
         }
 
-        public static IReadOnlyList<string> TagEffectLines(ItemDefinition definition)
-        {
-            var lines = new List<string>();
-            AppendTagEffects(lines, definition);
-            return lines;
-        }
-
         public static IReadOnlyList<string> TraitLines(ItemDefinition definition)
         {
             var lines = new List<string>();
@@ -459,62 +418,6 @@ namespace BitRunner.Core
             return lines;
         }
 
-        private static void AppendTagEffects(List<string> lines, ItemDefinition definition)
-        {
-            if (definition == null)
-            {
-                return;
-            }
-
-            IReadOnlyList<SynergyRule> rules = SynergyResolver.DefaultRules;
-            for (int i = 0; i < rules.Count; i++)
-            {
-                SynergyRule rule = rules[i];
-                if ((definition.Tags & rule.OwnerTag) == 0)
-                {
-                    continue;
-                }
-
-                int rank = definition.GetTagRank(rule.OwnerTag);
-                int amount = rule.AmountAtRank(rank);
-                if (amount <= 0)
-                {
-                    continue;
-                }
-
-                string condition = rule.ConditionTag == ItemTag.None
-                    ? string.Empty
-                    : ConditionName(rule.Condition) + TagList(rule.ConditionTag) + "，";
-                string line = TagName(rule.OwnerTag) + " " + RankText(rank) + "："
-                    + condition + TargetName(rule.Target) + " " + EffectText(rule, amount);
-
-                if (rule.MaxPerItem > 0)
-                {
-                    line += "（每件最多 " + rule.MaxPerItem + " 次）";
-                }
-
-                lines.Add(line);
-            }
-        }
-
-        private static string ConditionName(SynergyCondition condition)
-        {
-            switch (condition)
-            {
-                case SynergyCondition.SameRow:
-                    return "同行";
-                case SynergyCondition.SameColumn:
-                    return "同列";
-                default:
-                    return "相邻";
-            }
-        }
-
-        private static string TargetName(SynergyTarget target)
-        {
-            return target == SynergyTarget.Self ? "自身" : "目标";
-        }
-
         private static string RankText(int rank)
         {
             switch (rank)
@@ -531,23 +434,6 @@ namespace BitRunner.Core
                     return "V";
                 default:
                     return "I";
-            }
-        }
-
-        private static string EffectText(SynergyRule rule, int amount)
-        {
-            switch (rule.Effect)
-            {
-                case SynergyEffect.Damage:
-                    return "+" + amount + " 伤害";
-                case SynergyEffect.Shield:
-                    return "+" + amount + " 护盾";
-                case SynergyEffect.Energy:
-                    return "+" + amount + " 能量";
-                case SynergyEffect.CooldownReduction:
-                    return "-" + amount + " 冷却";
-                default:
-                    return "+" + amount;
             }
         }
     }

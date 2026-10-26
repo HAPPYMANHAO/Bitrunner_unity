@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace BitRunner.Core
@@ -15,7 +15,7 @@ namespace BitRunner.Core
     public sealed class NpcMarket
     {
         public const int StockWidth = 6;
-        public const int StockHeight = 3;
+        public const int StockHeight = 4;
         public const int StockSize = 3;
         public const int RefreshDays = 2;
         public const int PriceMultiplier = 4;
@@ -49,6 +49,33 @@ namespace BitRunner.Core
             }
 
             return stock;
+        }
+
+        internal bool TryGetStock(string npcId, out BagInventory stock)
+        {
+            return _stocks.TryGetValue(npcId, out stock);
+        }
+
+        internal int LastRefreshDay(string npcId)
+        {
+            int day;
+            return _lastRefreshDay.TryGetValue(npcId, out day) ? day : 0;
+        }
+
+        /// <summary>读档恢复一位联系人的货架与刷新日，不重掷货品。</summary>
+        internal void RestoreEntry(string npcId, BagInventory stock, int lastRefreshDay)
+        {
+            if (string.IsNullOrEmpty(npcId))
+            {
+                return;
+            }
+
+            if (stock != null)
+            {
+                _stocks[npcId] = stock;
+            }
+
+            _lastRefreshDay[npcId] = lastRefreshDay > 0 ? lastRefreshDay : 0;
         }
 
         /// <summary>到期才补货（每 <see cref="RefreshDays"/> 天）。</summary>
@@ -145,6 +172,12 @@ namespace BitRunner.Core
             if (!_catalog.TryGet(offer.DefinitionId, out definition))
             {
                 error = "未知物品。";
+                return false;
+            }
+
+            if (definition.Category == ItemCategory.Quest)
+            {
+                error = "契约要拿走才算接单。";
                 return false;
             }
 

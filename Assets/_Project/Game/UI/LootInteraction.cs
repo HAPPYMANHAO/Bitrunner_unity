@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using BitRunner.Core;
 using UnityEngine;
@@ -28,6 +28,7 @@ namespace BitRunner.Game
         private LootSource _playerSource;
         private LootSource _secureSource;
         private bool _targetSecure;
+        private ItemContainer _dropContainer;
         private ItemCatalog _catalog;
         private Dictionary<string, Color> _palette;
         private RectTransform _canvasRect;
@@ -50,6 +51,13 @@ namespace BitRunner.Game
 
         public event Action<string, int> ItemTaken;
         public event Action<string> Message;
+        public event Action ViewsRefreshed;
+
+        /// <summary>双击物品时先问这里：能打开（容器）就返回 true，不再执行快速转移。</summary>
+        public Func<LootSource, int, bool> TryActivateItem;
+
+        /// <summary>拖拽悬停位置下的容器窗口；返回非空表示这次投放目标是容器。</summary>
+        public Func<Vector2, ItemContainer> FindDropContainer;
 
         public void Initialize(
             BagInventory playerBag,
@@ -100,6 +108,11 @@ namespace BitRunner.Game
 
         private void Update()
         {
+            if (SettingsOverlay.BlocksInput)
+            {
+                return;
+            }
+
             Mouse mouse = Mouse.current;
             if (mouse == null)
             {
@@ -151,6 +164,12 @@ namespace BitRunner.Game
                     _lastClickId = clickedId;
 
                     CancelDrag();
+                    if (!shift && doubleClick && TryActivateItem != null
+                        && TryActivateItem(clickedSource, clickedId))
+                    {
+                        return;
+                    }
+
                     if (shift || doubleClick)
                     {
                         TryQuickTransfer(clickedSource, clickedId);
@@ -226,6 +245,17 @@ namespace BitRunner.Game
         {
             if (_item == null)
             {
+                return;
+            }
+
+            _dropContainer = FindDropContainer != null ? FindDropContainer(screen) : null;
+            if (_dropContainer != null)
+            {
+                ItemDefinition dropDefinition = _catalog.Get(_item.DefinitionId);
+                _validTarget = _dropContainer.CanAccept(dropDefinition) && _dropContainer.Bag.FreeCellCount > 0;
+                _playerView.HideGhost();
+                _secureView.HideGhost();
+                _floatRect.gameObject.SetActive(false);
                 return;
             }
 
@@ -357,6 +387,36 @@ namespace BitRunner.Game
 
             cell = Cell.Zero;
             return null;
+        }
+
+        /// <summary>把容器窗口接成拖拽源（战斗搜刮时打开容器用）。</summary>
+        public void AddSource(LootSource source)
+        {
+            if (source == null || _sources.Contains(source))
+            {
+                return;
+            }
+
+            _sources.Add(source);
+            RefreshViews();
+        }
+
+        public void RemoveSource(BagInventory bag)
+        {
+            if (bag == null)
+            {
+                return;
+            }
+
+            for (int i = _sources.Count - 1; i >= 0; i--)
+            {
+                if (_sources[i].Bag == bag)
+                {
+                    _sources.RemoveAt(i);
+                }
+            }
+
+            RefreshViews();
         }
 
         public int TakeAll()
@@ -514,11 +574,37 @@ namespace BitRunner.Game
             _secureView.Refresh();
             _playerView.HideGhost();
             _secureView.HideGhost();
+
+            if (ViewsRefreshed != null)
+            {
+                ViewsRefreshed();
+            }
         }
 
         private void EndDrag()
         {
-            if (_item != null)
+            if (_item != null && _dropContainer != null)
+            {
+                string dropError;
+                if (ContainerOps.TryPut(_dropContainer, _source.Bag, _item.InstanceId, _catalog, out dropError))
+                {
+                    if (Message != null)
+                    {
+                        Message("已放入 " + _catalog.Get(_item.DefinitionId).DisplayName + "。");
+                    }
+                }
+                else if (Message != null)
+                {
+                    Message(string.IsNullOrEmpty(dropError) ? "容器放不下这件物品。" : dropError);
+                }
+
+                _dropContainer = null;
+                if (_source != null && _source.View != null)
+                {
+                    _source.View.Refresh();
+                }
+            }
+            else if (_item != null)
             {
                 BagInventory targetBag = _targetSecure ? _secureBag : _playerBag;
                 PlacedItem placed = null;
@@ -585,14 +671,12 @@ namespace BitRunner.Game
                 _source.View.Refresh();
             }
 
-            _playerView.Refresh();
-            _secureView.Refresh();
-            _playerView.HideGhost();
-            _secureView.HideGhost();
+            RefreshViews();
             _floatRect.gameObject.SetActive(false);
 
             _dragging = false;
             _source = null;
+            _dropContainer = null;
             _item = null;
             _validTarget = false;
             _targetSecure = false;

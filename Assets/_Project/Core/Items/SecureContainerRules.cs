@@ -19,7 +19,8 @@ namespace BitRunner.Core
 
             if (definition.Category == ItemCategory.Weapon
                 || definition.Category == ItemCategory.Armor
-                || definition.Category == ItemCategory.Currency)
+                || definition.Category == ItemCategory.Currency
+                || definition.Category == ItemCategory.Quest)
             {
                 return false;
             }

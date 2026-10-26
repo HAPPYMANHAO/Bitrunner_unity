@@ -101,6 +101,31 @@ namespace BitRunner.Core
             Ending = CampaignEnding.None;
         }
 
+        /// <summary>
+        /// 读档恢复。调用方（<see cref="GameSave"/>）必须先把周次/天数/状态校验好——
+        /// 这里只负责赋值，不做业务判断，避免「读档成功但战役已经是死局」以外的惊喜。
+        /// </summary>
+        public static CampaignState Restore(
+            int[] installments,
+            IBitWallet wallet,
+            int week,
+            int day,
+            int totalPaid,
+            CampaignStatus status,
+            CampaignEnding ending)
+        {
+            var state = new CampaignState(installments, wallet);
+            state._weekIndex = week - 1;
+            state._day = day;
+            state._totalPaid = totalPaid;
+            state.Status = status;
+            state.Ending = ending;
+
+            // 存档只发生在基地；探索进行中的状态本来就不落盘。
+            state._expeditionOpen = false;
+            return state;
+        }
+
         public int Week
         {
             get { return _weekIndex + 1; }

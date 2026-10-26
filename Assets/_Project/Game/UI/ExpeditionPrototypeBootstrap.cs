@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text;
 using BitRunner.Core;
 using UnityEngine;
@@ -38,6 +38,7 @@ namespace BitRunner.Game
         private RectTransform _canvasRect;
         private RectTransform _sellBinRect;
         private Text _titleText;
+        private string _lastZoneId;
         private Text _narrationText;
         private Text _logText;
         private Text _detailText;
@@ -147,7 +148,8 @@ namespace BitRunner.Game
             BuildItemTooltip(canvas.transform);
             BuildContainerWindows();
 
-            _titleText.text = _scenario.Title;
+            _titleText.text = _scenario.Title + " · " + _scenario.ZoneName;
+            _lastZoneId = _scenario.ZoneId;
             RebuildActionBags();
             RefreshAll();
             string opening = _scenario.Stage == 0
@@ -157,10 +159,16 @@ namespace BitRunner.Game
                     : GameSession.LastMessage;
             SetNarration(opening);
             AppendLog(string.IsNullOrEmpty(GameSession.LastMessage) ? opening : GameSession.LastMessage);
+            AppendLog("【" + _scenario.ZoneName + "】" + _scenario.ZoneBlurb);
         }
 
         private void Update()
         {
+            if (SettingsOverlay.BlocksInput)
+            {
+                return;
+            }
+
             if (_ended || _scenario == null)
             {
                 return;
@@ -409,10 +417,28 @@ namespace BitRunner.Game
             _alertValue.text = _scenario.Alert.ToString();
             _stageValue.text = _scenario.Stage + "/" + _scenario.StageCount;
             _dayValue.text = GameSession.Campaign.Day + "/7";
+            _titleText.text = _scenario.Title + " · " + _scenario.ZoneName;
+            AnnounceZoneIfChanged();
 
             SetFill(_hpFill, GameSession.ExpeditionHp / (float)GameSession.ExpeditionMaxHp, HpColor);
             SetFill(_bagFill, _bag.FreeCellCount / (float)(_bag.Grid.Width * _bag.Grid.Height), BagColor);
             SetFill(_alertFill, _scenario.Alert / 4f, AlertColor);
+        }
+
+        /// <summary>换区域时把新地点的名字和一句环境描述写进记录，避免玩家不知道自己在哪。</summary>
+        private void AnnounceZoneIfChanged()
+        {
+            string zoneId = _scenario.ZoneId;
+            if (string.IsNullOrEmpty(zoneId) || zoneId == _lastZoneId)
+            {
+                return;
+            }
+
+            _lastZoneId = zoneId;
+            if (_scenario.Stage > 0)
+            {
+                AppendLog("【" + _scenario.ZoneName + "】" + _scenario.ZoneBlurb);
+            }
         }
 
         private static void SetFill(Image fill, float ratio, Color color)
@@ -1203,7 +1229,7 @@ namespace BitRunner.Game
         private void BuildSelection(Transform canvas)
         {
             RectTransform selected = CreateCenteredPanel(canvas, "Selected", new Vector2(125f, 42f), new Vector2(184f, 150f), PanelColor);
-            CreateCenteredText(selected, "Title", "已选行动", 9, TextColor, new Vector2(0f, 64f), new Vector2(168f, 12f));
+            CreateCenteredText(selected, "Title", "已选行动", 9, TextColor, new Vector2(0f, 63f), new Vector2(168f, 12f));
 
             _selectedActionBag = new BagInventory(4, 3);
             _selectedActionBagRect = CreateBagRect(selected, new Vector2(-54f, 18f), new Vector2(4f * BagView.CellSize, 3f * BagView.CellSize));
@@ -1211,9 +1237,9 @@ namespace BitRunner.Game
             _selectedActionView.Initialize(_selectedActionBag, _selectedActionBagRect, _actionPalette, _combinedCatalog);
             _selectedActionView.ItemEnabledPredicate = IsExpeditionUsableItem;
 
-            _selectedLabel = CreateText(selected, "Label", "拖入一个行动", 9, MutedColor, new Vector2(68f, -14f), new Vector2(108f, 12f), TextAnchor.UpperLeft);
-            _selectedRisk = CreateText(selected, "Risk", string.Empty, 7, MutedColor, new Vector2(68f, -28f), new Vector2(108f, 10f), TextAnchor.UpperLeft);
-            _assistHint = CreateText(selected, "AssistHint", "辅助 0/3", 7, MutedColor, new Vector2(68f, -40f), new Vector2(108f, 10f), TextAnchor.UpperLeft);
+            _selectedLabel = CreateText(selected, "Label", "拖入一个行动", 9, MutedColor, new Vector2(68f, -20f), new Vector2(108f, 12f), TextAnchor.UpperLeft);
+            _selectedRisk = CreateText(selected, "Risk", string.Empty, 7, MutedColor, new Vector2(68f, -34f), new Vector2(108f, 10f), TextAnchor.UpperLeft);
+            _assistHint = CreateText(selected, "AssistHint", "辅助 0/3", 7, MutedColor, new Vector2(68f, -46f), new Vector2(108f, 10f), TextAnchor.UpperLeft);
 
             for (int i = 0; i < 3; i++)
             {
@@ -1272,7 +1298,7 @@ namespace BitRunner.Game
         {            RectTransform panel = CreateCenteredPanel(canvas, "Log", new Vector2(-125f, -148f), new Vector2(350f, 44f), new Color32(9, 12, 16, 255));
             _logText = CreateText(panel, "Lines", string.Empty, 8, LogColor, new Vector2(8f, -5f), new Vector2(334f, 36f), TextAnchor.UpperLeft);
             _logText.verticalOverflow = VerticalWrapMode.Truncate;
-            CreateCenteredText(canvas, "Help", "拖动行动 · 空格确认 · B 背包", 7, MutedColor, new Vector2(155f, -170f), new Vector2(240f, 10f));
+            CreateCenteredText(canvas, "Help", "拖动行动 · 空格确认 · B 背包 · O 设置", 7, MutedColor, new Vector2(155f, -170f), new Vector2(240f, 10f));
         }
 
         private void BuildBagOverlay(Transform canvas)
@@ -1375,6 +1401,7 @@ namespace BitRunner.Game
             }
 
             _bagOpen = true;
+            SettingsOverlay.PushModal();
             _bagOverlay.SetActive(true);
             if (_actionDrag != null)
             {
@@ -1393,6 +1420,12 @@ namespace BitRunner.Game
 
         private void CloseBag()
         {
+            if (_bagOpen)
+            {
+                SettingsOverlay.PopModal();
+                SettingsOverlay.ConsumeEscape();
+            }
+
             _bagOpen = false;
             _bagOverlay.SetActive(false);
             _bagDrag.enabled = false;
@@ -1407,6 +1440,7 @@ namespace BitRunner.Game
         private void OpenLoot(string[] lootIds)
         {
             _lootOpen = true;
+            SettingsOverlay.PushModal();
             _lootOverlay.SetActive(true);
             if (_actionDrag != null)
             {
@@ -1479,6 +1513,12 @@ namespace BitRunner.Game
 
         private void CloseLoot()
         {
+            if (_lootOpen)
+            {
+                SettingsOverlay.PopModal();
+                SettingsOverlay.ConsumeEscape();
+            }
+
             _lootOpen = false;
             _lootOverlay.SetActive(false);
             if (_lootDrag != null)
@@ -1672,7 +1712,6 @@ namespace BitRunner.Game
                 || (_actionDrag != null && _actionDrag.IsDragging)
                 || (Mouse.current != null && Mouse.current.leftButton.isPressed))
             {
-                ClearSynergyHighlights(sources);
                 if (_itemTooltipPanel != null)
                 {
                     _itemTooltipPanel.SetActive(false);
@@ -1690,7 +1729,6 @@ namespace BitRunner.Game
                     ShowItemTooltip(assist, assistDefinition, screen);
                 }
 
-                ClearSynergyHighlights(sources);
                 return;
             }
 
@@ -1699,7 +1737,6 @@ namespace BitRunner.Game
             if (item == null)
             {
                 _itemTooltipPanel.SetActive(false);
-                ClearSynergyHighlights(sources);
                 return;
             }
 
@@ -1707,11 +1744,9 @@ namespace BitRunner.Game
             if (!_combinedCatalog.TryGet(item.DefinitionId, out definition))
             {
                 _itemTooltipPanel.SetActive(false);
-                ClearSynergyHighlights(sources);
                 return;
             }
 
-            UpdateSynergyHighlights(sources, hoveredSource, item);
             ShowItemTooltip(item, definition, screen);
         }
 
@@ -1782,57 +1817,6 @@ namespace BitRunner.Game
             }
 
             return null;
-        }
-
-        private void UpdateSynergyHighlights(
-            IReadOnlyList<BaseBagSource> sources,
-            BaseBagSource hovered,
-            PlacedItem item)
-        {
-            if (hovered == null || item == null)
-            {
-                ClearSynergyHighlights(sources);
-                return;
-            }
-
-            IReadOnlyList<int> linked = SynergyResolver.FindLinked(
-                hovered.Bag,
-                _combinedCatalog,
-                SynergyResolver.DefaultRules,
-                item.InstanceId);
-
-            for (int i = 0; i < sources.Count; i++)
-            {
-                if (sources[i] == null || sources[i].View == null)
-                {
-                    continue;
-                }
-
-                if (sources[i] == hovered)
-                {
-                    sources[i].View.SetHighlightedItems(linked);
-                }
-                else
-                {
-                    sources[i].View.ClearHighlights();
-                }
-            }
-        }
-
-        private static void ClearSynergyHighlights(IReadOnlyList<BaseBagSource> sources)
-        {
-            if (sources == null)
-            {
-                return;
-            }
-
-            for (int i = 0; i < sources.Count; i++)
-            {
-                if (sources[i] != null && sources[i].View != null)
-                {
-                    sources[i].View.ClearHighlights();
-                }
-            }
         }
 
         private string DescribeItem(ItemDefinition definition, PlacedItem item = null)
@@ -1964,6 +1948,7 @@ namespace BitRunner.Game
 
             RectTransform background = CreateCenteredPanel(canvas.transform, "Background", Vector2.zero, new Vector2(640f, 360f), BackgroundColor);
             background.GetComponent<Image>().raycastTarget = false;
+            BackgroundArt.Apply(background);
 
             return canvas;
         }

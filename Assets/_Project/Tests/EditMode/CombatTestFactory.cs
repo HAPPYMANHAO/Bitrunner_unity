@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using BitRunner.Core;
 
 namespace BitRunner.Tests
@@ -20,6 +20,7 @@ namespace BitRunner.Tests
                 Cooldown = cooldown,
                 Damage = damage,
                 Type = type,
+                MaxDurability = 8,
                 Value = value
             };
         }
@@ -37,6 +38,7 @@ namespace BitRunner.Tests
                 Tags = tags,
                 EnergyCost = 0,
                 Shield = block,
+                MaxDurability = 8,
 
                 // 词条 rank 不能超过物品等级，测试里按能量点数抬档。
                 Level = bonusEnergy > 1 ? bonusEnergy : 1,
@@ -72,6 +74,7 @@ namespace BitRunner.Tests
                 ArmorBurn = burn,
                 ArmorToxin = toxin,
                 ArmorAsphyxiation = asphyxiation,
+                MaxDurability = 8,
                 Value = value
             };
         }

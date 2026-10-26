@@ -50,6 +50,7 @@ namespace BitRunner.Game
             background.transform.SetParent(go.transform, false);
             Stretch((RectTransform)background.transform);
             background.GetComponent<Image>().color = BackgroundColor;
+            BackgroundArt.Apply((RectTransform)background.transform);
 
             return canvas;
         }

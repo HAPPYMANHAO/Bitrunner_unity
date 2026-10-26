@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using BitRunner.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -15,19 +15,23 @@ namespace BitRunner.Game
             public Image Image;
             public Text Label;
             public Color NormalColor;
+            public System.Action Click;
         }
+
+        private const string TitleResourcePath = "Art/bt_title";
 
         private static readonly Color BackgroundColor = new Color32(16, 19, 24, 255);
         private static readonly Color PanelColor = new Color32(26, 30, 38, 255);
-        private static readonly Color PanelLight = new Color32(33, 38, 47, 255);
         private static readonly Color TextColor = new Color32(224, 230, 240, 255);
         private static readonly Color MutedColor = new Color32(138, 146, 162, 255);
         private static readonly Color AccentColor = new Color32(58, 110, 165, 255);
         private static readonly Color AccentHoverColor = new Color32(78, 138, 198, 255);
         private static readonly Color DangerColor = new Color32(95, 58, 54, 255);
 
+        private static Sprite _titleSprite;
+        private static bool _titleSpriteLoaded;
+
         private readonly List<MenuButton> _buttons = new List<MenuButton>();
-        private RectTransform _canvasRect;
         private GameObject _helpOverlay;
         private RectTransform _backRect;
         private Image _backImage;
@@ -36,18 +40,20 @@ namespace BitRunner.Game
         private void Start()
         {
             Canvas canvas = CreateCanvas();
-            _canvasRect = (RectTransform)canvas.transform;
 
             BuildBackground(canvas.transform);
-            BuildShowcase(canvas.transform);
             BuildTitle(canvas.transform);
             BuildButtons(canvas.transform);
-            BuildFooter(canvas.transform);
             BuildHelp(canvas.transform);
         }
 
         private void Update()
         {
+            if (SettingsOverlay.BlocksInput)
+            {
+                return;
+            }
+
             Mouse mouse = Mouse.current;
             if (mouse == null)
             {
@@ -77,38 +83,37 @@ namespace BitRunner.Game
 
                 if (over && mouse.leftButton.wasPressedThisFrame)
                 {
-                    Activate(button);
+                    button.Click();
                     return;
                 }
             }
         }
 
-        private void Activate(MenuButton button)
+        private void ContinueOrNewGame()
         {
-            if (button.Label.text == "开始游戏")
+            string error;
+            if (!SaveSystem.TryLoad(out error))
             {
                 GameSession.StartNewGame();
-                SceneManager.LoadScene("BasePrototype");
+                GameSession.LastMessage = "存档读取失败：" + error + " 已开始新战役。";
             }
-            else if (button.Label.text == "玩法说明")
-            {
-                _helpOpen = true;
-                _helpOverlay.SetActive(true);
-            }
-            else if (button.Label.text == "退出游戏")
-            {
-#if UNITY_EDITOR
-                UnityEditor.EditorApplication.isPlaying = false;
-#else
-                Application.Quit();
-#endif
-            }
+
+            SceneManager.LoadScene("BasePrototype");
+        }
+
+        private void StartNewGame()
+        {
+            // 新开局同时清掉旧档，避免「从头开始但继续游戏还能读到上一局」。
+            SaveSystem.DeleteSave();
+            GameSession.StartNewGame();
+            SceneManager.LoadScene("BasePrototype");
         }
 
         private void BuildBackground(Transform canvas)
         {
             RectTransform background = CreatePanel(canvas, "Background", Vector2.zero, new Vector2(640f, 360f), BackgroundColor);
             background.GetComponent<Image>().raycastTarget = false;
+            BackgroundArt.Apply(background);
 
             for (int y = 0; y < 12; y++)
             {
@@ -128,72 +133,194 @@ namespace BitRunner.Game
             }
         }
 
-        private void BuildShowcase(Transform canvas)
+        /// <summary>
+        /// 标题优先用 Resources/Art/bt_title.png。图被切成多张字形时按原图坐标拼回一行
+        /// （保持原图的间距与重叠，整数倍放大保证像素清晰）；单张图直接铺；都没有时退回一行文字。
+        /// 美术替换不需要改代码。
+        /// </summary>
+        private void BuildTitle(Transform canvas)
         {
-            RectTransform panel = CreatePanel(canvas, "Showcase", new Vector2(-192f, 2f), new Vector2(184f, 184f), PanelColor);
-            panel.GetComponent<Image>().raycastTarget = false;
-
-            RectTransform grid = CreatePanel(panel, "Grid", new Vector2(0f, -8f), new Vector2(132f, 132f), new Color32(20, 24, 30, 255));
-            grid.GetComponent<Image>().raycastTarget = false;
-
-            for (int y = 0; y < 4; y++)
+            Sprite[] glyphs = Resources.LoadAll<Sprite>(TitleResourcePath);
+            if (glyphs != null && glyphs.Length > 1)
             {
-                for (int x = 0; x < 4; x++)
+                // 备用路线：图被切成多张字形时按原图坐标拼回一行（切片需把 Sprite Extrude 设为 0）。
+                BuildGlyphTitle(canvas, glyphs);
+                return;
+            }
+
+            Sprite title = LoadTitleSprite();
+            if (title != null)
+            {
+                var go = new GameObject("Title", typeof(RectTransform), typeof(Image));
+                go.transform.SetParent(canvas, false);
+                var rect = (RectTransform)go.transform;
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+
+                float pxWidth = Mathf.Max(1f, title.rect.width);
+                float scale = Mathf.Max(1f, Mathf.FloorToInt(288f / pxWidth));
+                rect.sizeDelta = new Vector2(title.rect.width * scale, title.rect.height * scale);
+                rect.anchoredPosition = new Vector2(0f, 96f);
+
+                var image = go.GetComponent<Image>();
+                image.sprite = title;
+                image.preserveAspect = false;
+                image.raycastTarget = false;
+                return;
+            }
+
+            CreateCenteredText(canvas, "Title", "BITRUNNER", 34, TextColor, new Vector2(0f, 96f), new Vector2(420f, 48f));
+        }
+
+        /// <summary>
+        /// 单张标题图：如果贴图可读，先裁掉四周透明边（标题图常带大片空白），
+        /// 这样布局位置和缩放都基于真实画面，不靠手填偏移量。
+        /// </summary>
+        private static Sprite LoadTitleSprite()
+        {
+            if (_titleSpriteLoaded)
+            {
+                return _titleSprite;
+            }
+
+            _titleSpriteLoaded = true;
+            Sprite sprite = Resources.Load<Sprite>(TitleResourcePath);
+            if (sprite == null)
+            {
+                return null;
+            }
+
+            Texture2D texture = sprite.texture;
+            if (texture == null || !texture.isReadable)
+            {
+                _titleSprite = sprite;
+                return _titleSprite;
+            }
+
+            Color[] pixels = texture.GetPixels();
+            int width = texture.width;
+            int height = texture.height;
+            int minX = width;
+            int minY = height;
+            int maxX = -1;
+            int maxY = -1;
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
                 {
-                    var go = new GameObject("Cell", typeof(RectTransform), typeof(Image));
-                    go.transform.SetParent(grid, false);
-                    var rect = (RectTransform)go.transform;
-                    rect.anchorMin = new Vector2(0.5f, 0.5f);
-                    rect.anchorMax = new Vector2(0.5f, 0.5f);
-                    rect.sizeDelta = new Vector2(31f, 31f);
-                    rect.anchoredPosition = new Vector2(-49.5f + x * 33f, 49.5f - y * 33f);
-                    Image image = go.GetComponent<Image>();
-                    image.color = new Color32(36, 42, 52, 255);
-                    image.raycastTarget = false;
+                    if (pixels[y * width + x].a <= 0.01f)
+                    {
+                        continue;
+                    }
+
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
                 }
             }
 
-            AddItem(grid, new Vector2(-49.5f, 49.5f), new Vector2(64f, 64f), new Color32(80, 140, 220, 255));
-            AddItem(grid, new Vector2(16.5f, 49.5f), new Vector2(64f, 31f), new Color32(232, 110, 64, 255));
-            AddItem(grid, new Vector2(49.5f, 16.5f), new Vector2(31f, 31f), new Color32(79, 184, 200, 255));
-            AddItem(grid, new Vector2(16.5f, 16.5f), new Vector2(31f, 31f), new Color32(90, 200, 130, 255));
-            AddItem(grid, new Vector2(-49.5f, -16.5f), new Vector2(31f, 31f), new Color32(220, 200, 70, 255));
-            AddItem(grid, new Vector2(16.5f, -16.5f), new Vector2(64f, 31f), new Color32(232, 110, 64, 255));
+            if (maxX < minX || maxY < minY)
+            {
+                _titleSprite = sprite;
+                return _titleSprite;
+            }
 
-            CreateText(panel, "Caption", "PACK / EXTRACT / SURVIVE", 8, MutedColor, new Vector2(10f, -6f), new Vector2(164f, 12f), TextAnchor.UpperLeft);
+            var rect = new Rect(minX, minY, maxX - minX + 1, maxY - minY + 1);
+            _titleSprite = Sprite.Create(texture, rect, new Vector2(0.5f, 0.5f), sprite.pixelsPerUnit);
+            _titleSprite.name = "bt_title_trimmed";
+            return _titleSprite;
         }
 
-        private static void AddItem(Transform parent, Vector2 center, Vector2 size, Color color)
+        private void BuildGlyphTitle(Transform canvas, Sprite[] glyphs)
         {
-            var go = new GameObject("Item", typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(parent, false);
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = size;
-            rect.anchoredPosition = center;
-            Image image = go.GetComponent<Image>();
-            image.color = color;
-            image.raycastTarget = false;
-        }
+            float minX = float.MaxValue;
+            float minY = float.MaxValue;
+            float maxX = float.MinValue;
+            float maxY = float.MinValue;
+            for (int i = 0; i < glyphs.Length; i++)
+            {
+                Rect r = glyphs[i].rect;
+                minX = Mathf.Min(minX, r.xMin);
+                minY = Mathf.Min(minY, r.yMin);
+                maxX = Mathf.Max(maxX, r.xMax);
+                maxY = Mathf.Max(maxY, r.yMax);
+            }
 
-        private void BuildTitle(Transform canvas)
-        {
-            RectTransform panel = CreatePanel(canvas, "Title", new Vector2(116f, 118f), new Vector2(300f, 80f), PanelColor);
-            panel.GetComponent<Image>().raycastTarget = false;
-            CreateText(panel, "Cn", "比特跑者", 30, TextColor, new Vector2(12f, -8f), new Vector2(276f, 40f), TextAnchor.UpperLeft);
-            CreateText(panel, "En", "BIT RUNNER", 10, AccentHoverColor, new Vector2(14f, -48f), new Vector2(276f, 18f), TextAnchor.UpperLeft);
-            CreateText(panel, "Tag", "背包整理　·　搜打撤　·　还债", 9, MutedColor, new Vector2(14f, -64f), new Vector2(276f, 16f), TextAnchor.UpperLeft);
+            float pixelWidth = Mathf.Max(1f, maxX - minX);
+            float pixelHeight = Mathf.Max(1f, maxY - minY);
+            float scale = Mathf.Max(1f, Mathf.FloorToInt(288f / pixelWidth));
+
+            var go = new GameObject("Title", typeof(RectTransform));
+            go.transform.SetParent(canvas, false);
+            var root = (RectTransform)go.transform;
+            root.anchorMin = new Vector2(0.5f, 0.5f);
+            root.anchorMax = new Vector2(0.5f, 0.5f);
+            root.pivot = new Vector2(0.5f, 0.5f);
+            root.sizeDelta = new Vector2(pixelWidth * scale, pixelHeight * scale);
+            root.anchoredPosition = new Vector2(0f, 96f);
+
+            // 按原图像素坐标摆放，重叠/间距都与绘制时一致。
+            for (int i = 0; i < glyphs.Length; i++)
+            {
+                Sprite glyph = glyphs[i];
+                var part = new GameObject("Glyph_" + i, typeof(RectTransform), typeof(Image));
+                part.transform.SetParent(root, false);
+                var rect = (RectTransform)part.transform;
+                rect.anchorMin = new Vector2(0f, 0f);
+                rect.anchorMax = new Vector2(0f, 0f);
+                rect.pivot = new Vector2(0f, 0f);
+                rect.sizeDelta = new Vector2(glyph.rect.width * scale, glyph.rect.height * scale);
+                rect.anchoredPosition = new Vector2(
+                    (glyph.rect.xMin - minX) * scale,
+                    (glyph.rect.yMin - minY) * scale);
+
+                var image = part.GetComponent<Image>();
+                image.sprite = glyph;
+                image.raycastTarget = false;
+            }
         }
 
         private void BuildButtons(Transform canvas)
         {
-            AddButton(canvas, "开始游戏", new Vector2(116f, 40f), AccentColor);
-            AddButton(canvas, "玩法说明", new Vector2(116f, -4f), AccentColor);
-            AddButton(canvas, "退出游戏", new Vector2(116f, -48f), DangerColor);
+            float y = 26f;
+            if (SaveSystem.HasSave())
+            {
+                AddButton(canvas, "继续游戏", new Vector2(0f, y), AccentColor, ContinueOrNewGame);
+                y -= 40f;
+                AddButton(canvas, "重新开始", new Vector2(0f, y), AccentColor, StartNewGame);
+                y -= 40f;
+            }
+            else
+            {
+                AddButton(canvas, "开始游戏", new Vector2(0f, y), AccentColor, StartNewGame);
+                y -= 40f;
+            }
+
+            AddButton(canvas, "玩法说明", new Vector2(0f, y), AccentColor, OpenHelp);
+            y -= 40f;
+            AddButton(canvas, "设置", new Vector2(0f, y), AccentColor, SettingsOverlay.OpenPanel);
+            y -= 40f;
+            AddButton(canvas, "退出游戏", new Vector2(0f, y), DangerColor, QuitGame);
         }
 
-        private void AddButton(Transform canvas, string label, Vector2 center, Color color)
+        private void OpenHelp()
+        {
+            _helpOpen = true;
+            _helpOverlay.SetActive(true);
+        }
+
+        private void QuitGame()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
+        }
+
+        private void AddButton(Transform canvas, string label, Vector2 center, Color color, System.Action click)
         {
             RectTransform rect = CreatePanel(canvas, "Button_" + label, center, new Vector2(244f, 32f), color);
             Text text = CreateCenteredText(rect, "Label", label, 13, TextColor, Vector2.zero, new Vector2(236f, 30f));
@@ -202,7 +329,8 @@ namespace BitRunner.Game
                 Rect = rect,
                 Image = rect.GetComponent<Image>(),
                 Label = text,
-                NormalColor = color
+                NormalColor = color,
+                Click = click
             });
         }
 
@@ -248,11 +376,6 @@ namespace BitRunner.Game
 
             _helpOverlay.SetActive(false);
             _helpOverlay.transform.SetAsLastSibling();
-        }
-
-        private void BuildFooter(Transform canvas)
-        {
-            CreateCenteredText(canvas, "Footer", "原型 v0.1　·　Unity 6", 8, MutedColor, new Vector2(0f, -172f), new Vector2(400f, 12f));
         }
 
         private Canvas CreateCanvas()

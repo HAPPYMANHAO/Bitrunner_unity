@@ -24,6 +24,66 @@ namespace BitRunner.Core
         public int Width { get; private set; }
         public int Height { get; private set; }
 
+        /// <summary>当前这批矿是在哪一天刷出来的。读档要原样恢复，否则同一天会重复刷新。</summary>
+        public int FilledWeek
+        {
+            get { return _filledWeek; }
+        }
+
+        public int FilledDay
+        {
+            get { return _filledDay; }
+        }
+
+        public static int WidthForLevel(int level)
+        {
+            return level <= 1 ? 1 : 2;
+        }
+
+        public static int HeightForLevel(int level)
+        {
+            return level <= 2 ? 1 : 2;
+        }
+
+        /// <summary>
+        /// 读档恢复。矿位数组长度必须与等级对应的格子数一致，否则整档拒绝——
+        /// 宁可报错，也不要把「一半有矿」的矿场塞给玩家。
+        /// </summary>
+        internal bool TryRestore(int level, bool[] filled, int filledWeek, int filledDay, out string error)
+        {
+            error = null;
+            if (level < 1 || level > MaxLevel)
+            {
+                error = "等级 " + level + " 超出 1–" + MaxLevel + "。";
+                return false;
+            }
+
+            int width = WidthForLevel(level);
+            int height = HeightForLevel(level);
+            int cells = width * height;
+            if (filled != null && filled.Length != cells)
+            {
+                error = "矿位数量 " + filled.Length + " 与等级 " + level + " 的 " + cells + " 格不符。";
+                return false;
+            }
+
+            Level = level;
+            Width = width;
+            Height = height;
+            _filled = new bool[cells];
+            if (filled != null)
+            {
+                for (int i = 0; i < cells; i++)
+                {
+                    _filled[i] = filled[i];
+                }
+            }
+
+            _filledWeek = filledWeek > 0 ? filledWeek : 0;
+            _filledDay = filledDay > 0 ? filledDay : 0;
+            return true;
+        }
+
         public bool CanUpgrade
         {
             get { return Level < MaxLevel; }
@@ -157,8 +217,8 @@ namespace BitRunner.Core
             }
 
             int nextLevel = Level + 1;
-            int nextWidth = nextLevel == 1 ? 1 : 2;
-            int nextHeight = nextLevel == 2 ? 1 : 2;
+            int nextWidth = WidthForLevel(nextLevel);
+            int nextHeight = HeightForLevel(nextLevel);
             var next = new bool[nextWidth * nextHeight];
 
             for (int y = 0; y < Height; y++)

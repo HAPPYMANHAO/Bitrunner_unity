@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using BitRunner.Core;
 using NUnit.Framework;
 
@@ -105,6 +105,44 @@ namespace BitRunner.Tests
                     int expected = definition.Level == 4 ? 290 : 700;
                     Assert.AreEqual(expected, definition.Value, definition.Id + " 价值偏离曲线");
                 }
+            }
+        }
+
+        [Test]
+        public void WeaponDamagePerEnergyGrowsSmoothly()
+        {
+            ItemCatalog catalog = Catalog();
+
+            // 每档「最高伤害/能量」必须逐档抬升：不能 T1–T3 原地踏步、到 T4 突然翻几倍。
+            int[] maxPerEnergy = new int[ItemCatalog.MaxLevel + 1];
+            foreach (ItemDefinition definition in catalog.Definitions)
+            {
+                if (definition.Category != ItemCategory.Weapon || definition.Damage <= 0)
+                {
+                    continue;
+                }
+
+                int cost = definition.EnergyCost > 0 ? definition.EnergyCost : 1;
+                int perEnergy = definition.Damage / cost;
+                if (perEnergy > maxPerEnergy[definition.Level])
+                {
+                    maxPerEnergy[definition.Level] = perEnergy;
+                }
+            }
+
+            for (int tier = 2; tier <= ItemCatalog.MaxLevel; tier++)
+            {
+                int previous = maxPerEnergy[tier - 1];
+                int current = maxPerEnergy[tier];
+                Assert.Greater(previous, 0, "T" + (tier - 1) + " 没有可用武器");
+                Assert.GreaterOrEqual(
+                    current * 100,
+                    previous * 115,
+                    "T" + tier + " 的伤害/能量比 T" + (tier - 1) + " 几乎没有提升（" + previous + " → " + current + "）");
+                Assert.LessOrEqual(
+                    current * 100,
+                    previous * 200,
+                    "T" + tier + " 的伤害/能量比 T" + (tier - 1) + " 暴涨（" + previous + " → " + current + "）");
             }
         }
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using BitRunner.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -43,6 +43,11 @@ namespace BitRunner.Game
 
         private void Update()
         {
+            if (SettingsOverlay.BlocksInput)
+            {
+                return;
+            }
+
             Mouse mouse = Mouse.current;
             if (mouse == null)
             {

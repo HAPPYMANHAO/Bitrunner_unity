@@ -26,6 +26,20 @@ namespace BitRunner.Core
             Grid = new BagInventory(WidthForLevel(1), HeightForLevel(1));
         }
 
+        internal void RestoreLevel(int level)
+        {
+            Level = level < 1 ? 1 : (level > MaxLevel ? MaxLevel : level);
+            Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
+        }
+
+        internal void RestoreGrid(BagInventory grid)
+        {
+            if (grid != null)
+            {
+                Grid = grid;
+            }
+        }
+
         /// <summary>L1 2×2 / L2 3×3 / L3 3×4 / L4 4×4 / L5 5×4（见 ITEM_TIER_PLAN §6.2）。</summary>
         public static int WidthForLevel(int level)
         {

@@ -687,6 +687,87 @@ namespace BitRunner.Core
             return best;
         }
 
+        /// <summary>
+        /// 存档恢复专用：按**原实例 ID、原坐标、原朝向**精确放回，并跳过
+        /// <see cref="ItemModificationGuard"/>——读档时通讯中枢还没有锁，也不该被锁住。
+        ///
+        /// 与 <see cref="TryAddAt"/> 的差别：这里的实例 ID 是外部给定的，
+        /// 因为通讯锁、商人报价都用实例 ID 指代物品，重新编号会让它们全部失效。
+        /// 内部计数器会抬到最大实例 ID 之上，之后新增的物品不会撞号。
+        /// </summary>
+        internal bool TryRestoreItem(
+            int instanceId,
+            string definitionId,
+            ItemShape baseShape,
+            int rotation,
+            bool rotatable,
+            Cell origin,
+            int count,
+            int durability,
+            bool expeditionBound,
+            out PlacedItem item,
+            out string error)
+        {
+            item = null;
+
+            if (instanceId <= 0)
+            {
+                error = "实例 ID 非法（" + instanceId + "）。";
+                return false;
+            }
+
+            if (definitionId == null || baseShape == null)
+            {
+                error = "物品定义缺失。";
+                return false;
+            }
+
+            if (_items.ContainsKey(instanceId))
+            {
+                error = "实例 ID " + instanceId + " 重复。";
+                return false;
+            }
+
+            if (rotation < 0 || rotation > 3)
+            {
+                error = "旋转值非法（" + rotation + "）。";
+                return false;
+            }
+
+            if (!rotatable && rotation != 0)
+            {
+                error = "该物品不可旋转，但存档里带了旋转值 " + rotation + "。";
+                return false;
+            }
+
+            if (count <= 0)
+            {
+                count = 1;
+            }
+
+            ItemShape shape = baseShape.Rotate(rotation);
+            if (!Grid.CanPlace(shape, origin))
+            {
+                error = "物品 " + definitionId + " 在 " + origin + " 无法放下（越界或重叠）。";
+                return false;
+            }
+
+            Grid.Place(instanceId, shape, origin);
+            var placed = new PlacedItem(instanceId, definitionId, baseShape, rotation, origin, rotatable, count);
+            placed.Durability = durability;
+            placed.ExpeditionBound = expeditionBound;
+            _items.Add(instanceId, placed);
+
+            if (instanceId >= _nextInstanceId)
+            {
+                _nextInstanceId = instanceId + 1;
+            }
+
+            item = placed;
+            error = null;
+            return true;
+        }
+
         public bool Remove(int instanceId)
         {
             if (!_items.ContainsKey(instanceId))

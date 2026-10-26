@@ -1,4 +1,4 @@
-namespace BitRunner.Core
+﻿namespace BitRunner.Core
 {
     public struct TagRank
     {
@@ -44,7 +44,12 @@ namespace BitRunner.Core
         public int Damage;
         public DamageType Type = DamageType.Melee;
         public int Shield;
-        public int MaxDurability;
+
+        /// <summary>
+        /// 最大耐久。必须显式填写：-1 = 未声明（武器/护甲会被 <see cref="ItemCatalog"/> 拒绝），
+        /// 0 = 不会损坏（例如野生动物的撕咬），大于 0 = 可消耗的耐久上限。
+        /// </summary>
+        public int MaxDurability = -1;
         public int Heal;
 
         public int ArmorMelee;
@@ -144,17 +149,10 @@ namespace BitRunner.Core
             get { return Category == ItemCategory.Weapon || Category == ItemCategory.Armor; }
         }
 
+        /// <summary>生效的耐久上限；未声明或为 0 时返回 0（不追踪耐久）。不做任何隐式兜底。</summary>
         public int DurabilityMax
         {
-            get
-            {
-                if (MaxDurability > 0)
-                {
-                    return MaxDurability;
-                }
-
-                return HasDurability ? 8 : 0;
-            }
+            get { return MaxDurability > 0 ? MaxDurability : 0; }
         }
 
         public int GetArmor(DamageType type)

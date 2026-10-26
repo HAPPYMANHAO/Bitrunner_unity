@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace BitRunner.Core
@@ -23,6 +23,7 @@ namespace BitRunner.Core
         public const string OverclockFlow = "overclock_flow";
         public const string ShortCircuitCharge = "short_circuit_charge";
         public const string CacheField = "cache_field";
+        public const string ToxinScrub = "toxin_scrub";
 
         // ---- CPU 芯片词条：只在背包之外生效（GlobalModifiers）----
         public const string HpChip = "hp_chip";
@@ -296,6 +297,17 @@ namespace BitRunner.Core
                     Status = StatusType.Cache,
                     StatusTurns = 1,
                     RankValues = new[] { 1, 1, 1, 1, 1 }
+                },
+
+                new TraitDefinition
+                {
+                    Id = ToxinScrub,
+                    DisplayName = "滤毒",
+                    DescriptionFormat = "回合开始：清除 {0} 层腐蚀",
+                    Trigger = TraitTrigger.TurnStart,
+                    Effect = TraitEffect.ConsumeStatus,
+                    Status = StatusType.Corrosion,
+                    RankValues = new[] { 1, 1, 2, 2, 3 }
                 },
 
                 // ---- CPU 芯片 ----

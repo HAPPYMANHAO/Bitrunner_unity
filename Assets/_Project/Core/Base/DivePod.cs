@@ -17,6 +17,22 @@ namespace BitRunner.Core
             Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
         }
 
+        /// <summary>读档恢复等级与已选密钥。格子先按等级建好空网，内容物由调用方随后灌入。</summary>
+        internal void RestoreLevel(int level, string selectedKeyItemId)
+        {
+            Level = level < 1 ? 1 : (level > MaxLevel ? MaxLevel : level);
+            SelectedKeyItemId = selectedKeyItemId;
+            Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
+        }
+
+        internal void RestoreGrid(BagInventory grid)
+        {
+            if (grid != null)
+            {
+                Grid = grid;
+            }
+        }
+
         /// <summary>
         /// 舱体宽度 = 等级。密钥体积按档递增（1 / 2 / 4 / 6 / 9 格），
         /// 所以 L1 只塞得下 T1 密钥，最深的 3×3 密钥要 L3 才能放进去。
@@ -41,7 +57,6 @@ namespace BitRunner.Core
         {
             get { return WidthForLevel(Level); }
         }
-
         public int Height
         {
             get { return HeightForLevel(Level); }

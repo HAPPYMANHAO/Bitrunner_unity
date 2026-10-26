@@ -28,11 +28,54 @@ namespace BitRunner.Core
         {
             Level = 1;
             Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
-            Grid.ItemModificationGuard = instanceId =>
+            Grid.ItemModificationGuard = GuardItemModification;
+        }
+
+        /// <summary>
+        /// 读档恢复等级。锁表不在这里恢复——必须先灌入链路物品，再由
+        /// <see cref="RestoreLocks"/> 校验实例是否还存在。
+        /// </summary>
+        internal void RestoreLevel(int level)
+        {
+            Level = level < 1 ? 1 : (level > MaxLevel ? MaxLevel : level);
+            Grid = new BagInventory(WidthForLevel(Level), HeightForLevel(Level));
+            Grid.ItemModificationGuard = GuardItemModification;
+        }
+
+        internal void RestoreGrid(BagInventory grid)
+        {
+            if (grid == null)
             {
-                string error;
-                return CanModify(instanceId, out error) ? null : error;
-            };
+                return;
+            }
+
+            grid.ItemModificationGuard = GuardItemModification;
+            Grid = grid;
+        }
+
+        internal void RestoreLocks(IEnumerable<KeyValuePair<int, string>> locks)
+        {
+            _locks.Clear();
+            if (locks == null)
+            {
+                return;
+            }
+
+            foreach (KeyValuePair<int, string> pair in locks)
+            {
+                _locks[pair.Key] = pair.Value;
+            }
+        }
+
+        internal IReadOnlyDictionary<int, string> Locks
+        {
+            get { return _locks; }
+        }
+
+        private string GuardItemModification(int instanceId)
+        {
+            string error;
+            return CanModify(instanceId, out error) ? null : error;
         }
 
         /// <summary>L1 2×2 / L2 3×2 / L3 3×3 / L4 4×3 / L5 4×4（4 / 6 / 9 / 12 / 16 格）。</summary>

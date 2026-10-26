@@ -69,6 +69,70 @@ namespace BitRunner.Core
             return progress == null ? QuestState.Offered : progress.State;
         }
 
+        internal IReadOnlyDictionary<string, QuestProgress> ProgressMap
+        {
+            get { return _progress; }
+        }
+
+        internal IReadOnlyList<string> AcceptedOrder
+        {
+            get { return _acceptedOrder; }
+        }
+
+        internal IReadOnlyDictionary<string, int> CooldownMap
+        {
+            get { return _cooldownUntilDay; }
+        }
+
+        /// <summary>
+        /// 读档恢复。链路锁由 <see cref="CommsHub.RestoreLocks"/> 单独恢复——
+        /// 任务状态与锁是两套数据，拆开还原能保证「锁指向不存在的链路时任务仍然可读」。
+        /// </summary>
+        internal void RestoreState(
+            IEnumerable<QuestProgress> progress,
+            IEnumerable<string> acceptedOrder,
+            IEnumerable<KeyValuePair<string, int>> cooldowns)
+        {
+            _progress.Clear();
+            _acceptedOrder.Clear();
+            _cooldownUntilDay.Clear();
+
+            if (progress != null)
+            {
+                foreach (QuestProgress entry in progress)
+                {
+                    if (entry != null && !string.IsNullOrEmpty(entry.QuestId))
+                    {
+                        _progress[entry.QuestId] = entry;
+                    }
+                }
+            }
+
+            if (acceptedOrder != null)
+            {
+                foreach (string questId in acceptedOrder)
+                {
+                    if (!string.IsNullOrEmpty(questId)
+                        && _progress.ContainsKey(questId)
+                        && !_acceptedOrder.Contains(questId))
+                    {
+                        _acceptedOrder.Add(questId);
+                    }
+                }
+            }
+
+            if (cooldowns != null)
+            {
+                foreach (KeyValuePair<string, int> pair in cooldowns)
+                {
+                    if (!string.IsNullOrEmpty(pair.Key))
+                    {
+                        _cooldownUntilDay[pair.Key] = pair.Value;
+                    }
+                }
+            }
+        }
+
         /// <summary>这位 NPC 当前还能不能再接一个任务（他的链路没被占）。</summary>
         public static bool NpcIsFree(CommsHub hub, string npcId)
         {

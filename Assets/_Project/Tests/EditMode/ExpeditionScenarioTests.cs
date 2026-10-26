@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using BitRunner.Core;
 using NUnit.Framework;
 
@@ -160,12 +160,79 @@ namespace BitRunner.Tests
         }
 
         [Test]
-        public void BasicDiveKeyHasFiveStages()
+        public void BasicDiveKeyHasFourteenStages()
         {
             DivePlan plan;
             string error;
             Assert.IsTrue(DiveKeyLibrary.TryResolve("dive_basic", new string[0], out plan, out error), error);
-            Assert.AreEqual(5, plan.StageCount);
+            Assert.AreEqual(14, plan.StageCount);
+        }
+
+        [Test]
+        public void EveryDiveKeyExploresAtLeastTwelveStages()
+        {
+            string[] keys = { "dive_wild", "dive_basic", "dive_military", "dive_signal", "dive_deep", "dive_core" };
+            for (int i = 0; i < keys.Length; i++)
+            {
+                DivePlan plan;
+                string error;
+                Assert.IsTrue(DiveKeyLibrary.TryResolve(keys[i], new string[0], out plan, out error), error);
+                Assert.GreaterOrEqual(plan.StageCount, 12, keys[i]);
+            }
+        }
+
+        [Test]
+        public void ZonesChangeAcrossStages()
+        {
+            ExpeditionScenario scenario = ExpeditionScenario.Generate(2024, MakePlan());
+            var seen = new HashSet<string> { scenario.ZoneId };
+            for (int step = 0; step < 8 && scenario.Stage < scenario.StageCount; step++)
+            {
+                ExpeditionActionOption action = FirstNonExit(scenario);
+                if (action == null)
+                {
+                    break;
+                }
+
+                scenario.Resolve(action.Id, Context());
+                Assert.IsFalse(string.IsNullOrEmpty(scenario.ZoneId));
+                seen.Add(scenario.ZoneId);
+            }
+
+            Assert.Greater(seen.Count, 1, "走过的区域应该多于一个");
+        }
+
+        [Test]
+        public void BranchActionLeadsToItsZone()
+        {
+            ExpeditionScenario scenario = ExpeditionScenario.Generate(77, MakePlan());
+            for (int step = 0; step < scenario.StageCount - 1; step++)
+            {
+                ExpeditionActionOption branch = null;
+                for (int i = 0; i < scenario.CurrentOptions.Count; i++)
+                {
+                    ExpeditionActionOption option = scenario.CurrentOptions[i];
+                    if (!option.IsExit && !string.IsNullOrEmpty(option.NextZoneId))
+                    {
+                        branch = option;
+                        break;
+                    }
+                }
+
+                if (branch != null)
+                {
+                    string target = branch.NextZoneId;
+                    scenario.Resolve(branch.Id, Context());
+                    Assert.AreEqual(target, scenario.ZoneId);
+                    return;
+                }
+
+                ExpeditionActionOption action = FirstNonExit(scenario);
+                Assert.IsNotNull(action);
+                scenario.Resolve(action.Id, Context());
+            }
+
+            Assert.Fail("整条路线里没有出现带分支的行动");
         }
 
         [Test]
