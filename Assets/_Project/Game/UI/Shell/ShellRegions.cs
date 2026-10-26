@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace BitRunner.Game
 {
@@ -32,21 +32,24 @@ namespace BitRunner.Game
         /// 位置在**右侧命令列**：行动/背包菜单正下方、日志正上方。原来它在右上角与日志同高，
         /// 离玩家的视线中心（左中 + 中下）太远；挪到这一列之后，垂直方向从"菜单 → 主按钮 → 日志"
         /// 一路读下来，右下角那片大留白也不再空着。
+        ///
+        /// 整列又整体上移过一版（侧栏 55→45、按钮 216→209、日志 246→239）：原来按钮贴着底带
+        /// 和日志，视觉上像压住了中段。现在三者之间各留 4–6px，读起来是三段而不是一块。
         /// </summary>
-        public static readonly Rect PrimaryAction = new Rect(465f, 216f, 170f, 26f);
+        public static readonly Rect PrimaryAction = new Rect(465f, 209f, 170f, 24f);
 
         /// <summary>战斗用的两枚次要按钮（撤离 / 动画速度），落在主按钮让出来的右上角空位。</summary>
         public static readonly Rect SecondaryAction1 = new Rect(455f, 16f, 74f, 22f);
         public static readonly Rect SecondaryAction2 = new Rect(535f, 16f, 100f, 22f);
 
         /// <summary>D 侧栏：页签行 + 内容区。出自 BuildRightPanel。</summary>
-        public static readonly Rect Side = new Rect(465f, 55f, 170f, 160f);
+        public static readonly Rect Side = new Rect(465f, 45f, 170f, 160f);
 
         /// <summary>D 的页签行（基地 8 个 20px 页签），高度固定，三种模式都有。</summary>
-        public static readonly Rect SideTabRow = new Rect(465f, 57f, 170f, 18f);
+        public static readonly Rect SideTabRow = new Rect(465f, 47f, 170f, 18f);
 
         /// <summary>D 的内容区（三种模式的 Screen 往这里建）。</summary>
-        public static readonly Rect SideContent = new Rect(465f, 77f, 170f, 138f);
+        public static readonly Rect SideContent = new Rect(465f, 67f, 170f, 138f);
 
         /// <summary>E 角色状态：生命 / 能量 固定在前两组。出自 BuildLeftStats。</summary>
         public static readonly Rect Status = new Rect(2f, 226f, 84f, 124f);
@@ -60,8 +63,14 @@ namespace BitRunner.Game
         /// <summary>F3 保险箱：同上，永不重建。</summary>
         public static readonly Rect BenchSecure = new Rect(399f, 266f, 76f, 84f);
 
-        /// <summary>G 日志：右下角，跨模式连续追加，不清空。出自 BuildLog。让出 22px 给上方的主按钮。</summary>
-        public static readonly Rect Log = new Rect(486f, 246f, 150f, 104f);
+        /// <summary>G 日志：右下角，跨模式连续追加，不清空。出自 BuildLog。让出上方一段给主按钮。</summary>
+        public static readonly Rect Log = new Rect(486f, 239f, 150f, 111f);
+
+        /// <summary>
+        /// 探索的丢弃区：保险箱正上方那块空位（F 带里唯一没被占的角落）。
+        /// 只在探索主界面出现；战斗里的丢弃区在 F2 战利品板内部。
+        /// </summary>
+        public static readonly Rect DiscardBin = new Rect(399f, 238f, 62f, 20f);
 
         // ---- Screen 可建：三种模式三选一 ----
 

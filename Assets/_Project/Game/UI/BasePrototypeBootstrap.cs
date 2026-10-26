@@ -1172,7 +1172,11 @@ namespace BitRunner.Game
 
         private void BuildRightPanel(Transform canvas)
         {
-            RectTransform panel = CreateCenteredPanel(canvas, "RightPanel", new Vector2(230f, 45f), new Vector2(170f, 160f), PanelColor);
+            RectTransform panel = CreateCenteredPanel(
+                canvas, "RightPanel",
+                ShellRegions.CenterOf(ShellRegions.Side),
+                ShellRegions.SizeOf(ShellRegions.Side),
+                PanelColor);
             AddBorder(panel, new Color32(67, 59, 47, 255));
             panel.gameObject.AddComponent<RectMask2D>();
 
@@ -1228,8 +1232,8 @@ namespace BitRunner.Game
             _merchantView = _merchantRect.gameObject.AddComponent<BagView>();
             _merchantView.Initialize(_merchant.Stock, _merchantRect, _palette);
 
-            _discardBinRect = CreateAnchoredPanel(content, "DiscardBin", new Vector2(46f, -108f), new Vector2(78f, 22f), SellColor);
-            CreateCenteredText(_discardBinRect, "Label", "丢弃", 9, MutedColor, Vector2.zero, new Vector2(84f, 22f));
+            _discardBinRect = CreateAnchoredPanel(content, "DiscardBin", new Vector2(46f, -108f), new Vector2(78f, 22f), DiscardColor);
+            CreateCenteredText(_discardBinRect, "Label", "丢弃", 9, TextColor, Vector2.zero, new Vector2(84f, 22f));
         }
 
         /// <summary>
@@ -1359,7 +1363,7 @@ namespace BitRunner.Game
                 AccentColor);
             AddBorder(_deployRect, new Color32(96, 142, 186, 255));
             _deployImage = _deployRect.GetComponent<Image>();
-            _deployText = CreateCenteredText(_deployRect, "Label", "出征", 11, TextColor, Vector2.zero, new Vector2(166f, 24f));
+            _deployText = CreateCenteredText(_deployRect, "Label", "出征", 11, TextColor, Vector2.zero, new Vector2(166f, 22f));
         }
 
         /// <summary>

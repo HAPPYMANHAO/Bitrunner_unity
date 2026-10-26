@@ -35,7 +35,11 @@ namespace BitRunner.Game
         public static string LastMessage { get; set; }
         public static ExpeditionScenario Scenario { get; private set; }
 
-        /// <summary>已选行动里的辅助标志实例 ID；跨战斗场景重载保留。</summary>
+        /// <summary>
+        /// 已选行动里的辅助标志实例 ID。**现在没有人读它**——辅助标志已经改成实物放在
+        /// 「已选行动」格子里（见 ExpeditionPrototypeBootstrap.TakeAssist），选择状态直接从那个包读。
+        /// 保留字段只是为了不改存档/旧调用点；新代码不要再往里写。
+        /// </summary>
         public static readonly List<int> ExpeditionAssistIds = new List<int>();
         public static int ExpeditionHp { get; set; }
         public static int EncountersCleared { get; private set; }
@@ -550,18 +554,24 @@ namespace BitRunner.Game
                 modifiers.ApplyArmorBase());
         }
 
+        /// <summary>
+        /// 结算一个探索行动。辅助标志现在可能是**实物放在已选行动格子里**的，
+        /// 所以除了 id 还要说清它们住在哪个包里（默认仍按老路子读玩家背包）。
+        /// </summary>
         public static ExpeditionResolution ResolveExpeditionAction(
             string actionId,
-            IReadOnlyList<PlacedItem> assistItems = null)
+            IReadOnlyList<PlacedItem> assistItems = null,
+            BagInventory assistBag = null)
         {
             if (Scenario == null || !Campaign.ExpeditionOpen)
             {
                 return null;
             }
 
+            BagInventory assistSource = assistBag != null ? assistBag : PlayerBag;
             var assists = new List<AssistSpec>();
             var usedAssists = new List<PlacedItem>();
-            if (assistItems != null && PlayerBag != null && Catalog != null)
+            if (assistItems != null && assistSource != null && Catalog != null)
             {
                 var families = new List<string>();
                 for (int i = 0; i < assistItems.Count && families.Count < 3; i++)
@@ -573,7 +583,7 @@ namespace BitRunner.Game
                     }
 
                     PlacedItem owned;
-                    if (!PlayerBag.TryGet(requested.InstanceId, out owned))
+                    if (!assistSource.TryGet(requested.InstanceId, out owned))
                     {
                         continue;
                     }
@@ -625,7 +635,7 @@ namespace BitRunner.Game
                     int next = ItemDurability.Consume(item, definition, 1);
                     if (next <= 0)
                     {
-                        PlayerBag.Remove(item.InstanceId);
+                        assistSource.Remove(item.InstanceId);
                         broken.Add(definition.DisplayName);
                     }
                 }

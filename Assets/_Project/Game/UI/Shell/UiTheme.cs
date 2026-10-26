@@ -42,6 +42,12 @@ namespace BitRunner.Game
         public static readonly Color SelectedColor = new Color32(74, 60, 32, 255);
         public static readonly Color PanelSelectedColor = new Color32(42, 51, 64, 255);
         public static readonly Color SellColor = new Color32(58, 46, 34, 255);
+
+        /// <summary>丢弃区恒用红色：它是唯一"删掉东西"的操作，配色必须和卖出（棕）分得开。</summary>
+        public static readonly Color DiscardColor = new Color32(120, 46, 42, 255);
+
+        /// <summary>光标停到丢弃区上方时的提醒色。</summary>
+        public static readonly Color DiscardHighlightColor = new Color32(178, 66, 58, 255);
         public static readonly Color BagColor = new Color32(91, 160, 210, 255);
         public static readonly Color LootColor = new Color32(220, 200, 70, 255);
         public static readonly Color AlertColor = new Color32(224, 164, 79, 255);

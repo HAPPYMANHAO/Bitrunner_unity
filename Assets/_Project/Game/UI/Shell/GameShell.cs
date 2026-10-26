@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using BitRunner.Core;
 using UnityEngine;
 using UnityEngine.UI;
@@ -112,11 +112,11 @@ namespace BitRunner.Game
         /// <summary>左栏最多几行。基地 4 行、探索 5 行，留 6 个槽够用且不会重建。</summary>
         private const int StatusSlotCount = 6;
 
-        /// <summary>日志最多保留几行。150×104 的面板在字号 7 下约放得下 8 行。</summary>
-        private const int MaxLogEntries = 8;
+        /// <summary>日志最多保留几行。150×111 的面板在字号 7 下约放得下 9 行。</summary>
+        private const int MaxLogEntries = 9;
 
         /// <summary>日志按字符计的容量上限，超出从最旧的开始丢。见 <see cref="AppendLog"/>。</summary>
-        private const int LogCharBudget = 150;
+        private const int LogCharBudget = 170;
 
         public static GameShell Instance { get; private set; }
 

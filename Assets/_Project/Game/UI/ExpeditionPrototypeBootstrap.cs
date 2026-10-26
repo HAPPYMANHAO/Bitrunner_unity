@@ -33,6 +33,7 @@ namespace BitRunner.Game
         private Text _selectedRisk;
         private Text _confirmText;
         private RectTransform _confirmRect;
+        private RectTransform _discardRect;
 
         private ItemCatalog _actionCatalog;
         private ItemCatalog _combinedCatalog;
@@ -50,10 +51,10 @@ namespace BitRunner.Game
         private RectTransform _sidePanelRect;
         private BaseDragInteraction _actionDrag;
         private string _selectedActionId;
-        private readonly List<int> _selectedAssistIds = new List<int>();
-        private readonly List<RectTransform> _assistChipRects = new List<RectTransform>();
-        private readonly List<Text> _assistChipTexts = new List<Text>();
         private Text _assistHint;
+
+        /// <summary>已选行动最多携带几个辅助标志。</summary>
+        private const int MaxAssists = 3;
         private bool _showPlayerBag;
         private bool _ended;
 
@@ -171,8 +172,6 @@ namespace BitRunner.Game
             _bag = GameSession.PlayerBag;
             _secure = GameSession.Secure;
             _scenario = GameSession.Scenario;
-            _selectedAssistIds.Clear();
-            _selectedAssistIds.AddRange(GameSession.ExpeditionAssistIds);
             _palette = BuildPalette(_catalog);
             _actionCatalog = ExpeditionActionItemLibrary.CreateCatalog();
             _combinedCatalog = BuildCombinedCatalog(_catalog, _actionCatalog);
@@ -322,16 +321,6 @@ namespace BitRunner.Game
                 return;
             }
 
-            for (int i = 0; i < _assistChipRects.Count; i++)
-            {
-                if (_assistChipRects[i].gameObject.activeSelf
-                    && RectTransformUtility.RectangleContainsScreenPoint(_assistChipRects[i], screen, null))
-                {
-                    RemoveAssistAt(i);
-                    return;
-                }
-            }
-
             if (RectTransformUtility.RectangleContainsScreenPoint(_confirmRect, screen, null))
             {
                 ConfirmSelected();
@@ -347,10 +336,9 @@ namespace BitRunner.Game
                 return;
             }
 
-            IReadOnlyList<PlacedItem> items = _selectedActionBag != null ? _selectedActionBag.Items : null;
             ExpeditionSelection selection = ExpeditionSelectionRules.Evaluate(
                 _scenario,
-                items,
+                SelectedPrimaryItems(),
                 SelectedAssistItems(),
                 _combinedCatalog,
                 GameSession.ExpeditionHp,
@@ -386,7 +374,7 @@ namespace BitRunner.Game
                 return;
             }
 
-            ExpeditionResolution result = GameSession.ResolveExpeditionAction(action.Id, selection.Assists);
+            ExpeditionResolution result = GameSession.ResolveExpeditionAction(action.Id, selection.Assists, _selectedActionBag);
             if (result == null)
             {
                 SetNarration("这个行动已经无法执行。");
@@ -395,8 +383,8 @@ namespace BitRunner.Game
 
             if (result.IsExit || _scenario.IsComplete)
             {
-                _selectedAssistIds.Clear();
-                SyncAssistIds();
+                // 这一趟走完了：辅助标志是玩家的东西，先收回背包再走。
+                ReturnSelectedAssistsToBag();
             }
 
             _selectedActionId = null;
@@ -458,6 +446,12 @@ namespace BitRunner.Game
                 _containerWindows.CloseAll();
             }
 
+            // 搜刮面板挂在外壳的 ScreenLayer 上，压栈不会自动收——进战前必须自己关掉。
+            if (_lootOpen)
+            {
+                CloseLoot();
+            }
+
             gameObject.SetActive(false);
             CombatPrototypeBootstrap.Launch(_shell, OnCombatExit);
         }
@@ -495,6 +489,9 @@ namespace BitRunner.Game
         {
             Action<ExpeditionExit> callback = _onExit;
             _onExit = null;
+
+            // 已选行动是个临时格子：里面的辅助标志是玩家的东西，离场前必须收回背包。
+            ReturnSelectedAssistsToBag();
 
             TearDown();
 
@@ -663,7 +660,17 @@ namespace BitRunner.Game
                 _actionBag.TryAdd(option.Id, definition.Shape, false, out placed);
             }
 
-            _selectedActionBag = new BagInventory(4, 3);
+            // 已选行动那一格**不再整个换新**：里面除了这次要执行的行动，还放着玩家的辅助标志（实物）。
+            // 换实例等于把标志连同耐久一起丢掉。这里只把"行动/道具"那一件取走，辅助原样留着。
+            if (_selectedActionBag == null)
+            {
+                _selectedActionBag = new BagInventory(4, 3);
+            }
+            else
+            {
+                ClearPrimaryFromSelected();
+            }
+
             if (_actionView != null)
             {
                 _actionView.Rebind(_actionBag);
@@ -671,7 +678,7 @@ namespace BitRunner.Game
 
             if (_selectedActionView != null)
             {
-                _selectedActionView.Rebind(_selectedActionBag);
+                _selectedActionView.Refresh();
             }
 
             if (_actionDrag != null)
@@ -706,7 +713,15 @@ namespace BitRunner.Game
                 return null;
             }
 
-            if (_selectedActionBag == null || _selectedActionBag.Count > 0)
+            // 辅助标志：已选行动里可以放好几件（最多 3 个），具体规则交给 TrySpecialDrop。
+            ItemDefinition quickDefinition;
+            if (_combinedCatalog.TryGet(item.DefinitionId, out quickDefinition) && quickDefinition.Assist != null)
+            {
+                return _actionDrag.FindSource("SELECTED");
+            }
+
+            // 行动 / 待用道具：一格只放一件。
+            if (PrimarySelectedItem() != null)
             {
                 return null;
             }
@@ -824,14 +839,9 @@ namespace BitRunner.Game
 
         private void OnActionBagChanged()
         {
-            if (_selectedActionBag != null && _selectedActionBag.Count > 0)
-            {
-                _selectedActionId = _selectedActionBag.Items[0].DefinitionId;
-            }
-            else
-            {
-                _selectedActionId = null;
-            }
+            // 格子里现在可能同时有"行动 + 辅助标志"，取主物品的定义 id，别把辅助当成行动。
+            PlacedItem primary = PrimarySelectedItem();
+            _selectedActionId = primary != null ? primary.DefinitionId : null;
 
             RefreshSelected();
             RefreshStatus();
@@ -861,17 +871,16 @@ namespace BitRunner.Game
 
         private void RefreshSelected()
         {
-            IReadOnlyList<PlacedItem> items = _selectedActionBag != null ? _selectedActionBag.Items : null;
             List<PlacedItem> assists = SelectedAssistItems();
             ExpeditionSelection selection = ExpeditionSelectionRules.Evaluate(
                 _scenario,
-                items,
+                SelectedPrimaryItems(),
                 assists,
                 _combinedCatalog,
                 GameSession.ExpeditionHp,
                 GameSession.ExpeditionMaxHp);
 
-            RefreshAssistChips();
+            RefreshAssistHint();
 
             if (_selectedActionView != null)
             {
@@ -1093,70 +1102,88 @@ namespace BitRunner.Game
             return string.Join("、", parts.ToArray());
         }
 
+        /// <summary>
+        /// 拖放到「已选行动」的特殊规则。辅助标志是**实物**：拖进来就从背包搬进格子，
+        /// 拖出去（或拖回背包）就搬回去——不再只是记一个 id、物品还留在背包里。
+        /// </summary>
         private bool TryAssistDrop(BaseBagSource source, PlacedItem item, BaseBagSource target)
         {
-            if (target == null || target.Name != "SELECTED" || item == null)
+            if (target == null || target.Name != "SELECTED" || item == null || _selectedActionBag == null)
             {
                 return false;
             }
 
             ItemDefinition definition;
-            if (_combinedCatalog == null || !_combinedCatalog.TryGet(item.DefinitionId, out definition)
-                || definition.Assist == null)
+            if (_combinedCatalog == null || !_combinedCatalog.TryGet(item.DefinitionId, out definition))
             {
+                return false;
+            }
+
+            // 在同一个袋子里挪格子（调整摆放位置）不算"拖出"，交给普通拖放处理。
+            if (source == target)
+            {
+                return false;
+            }
+
+            // 从已选行动里拖到它自己身上 = 取回背包。
+            if (source != null && source.Name == "SELECTED")
+            {
+                if (definition.Assist == null)
+                {
+                    return false;
+                }
+
+                string backMessage;
+                ReturnAssist(item, definition, out backMessage);
+                SetNarration(backMessage);
+                RefreshSelected();
+                RefreshStatus();
+                return true;
+            }
+
+            if (definition.Assist == null)
+            {
+                // 行动 / 待用道具：一格只放一件，第二件原样退回并说明原因。
+                if (PrimarySelectedItem() != null)
+                {
+                    SetNarration("已选行动只能放一个物品，先把原来的拖出来。");
+                    return true;
+                }
+
                 return false;
             }
 
             string message;
-            TryToggleAssist(item.InstanceId, out message);
-            if (!string.IsNullOrEmpty(message))
-            {
-                SetNarration(message);
-            }
-
+            TakeAssist(item, definition, out message);
+            SetNarration(message);
+            RefreshSelected();
+            RefreshStatus();
             return true;
         }
 
-        private bool TryToggleAssist(int instanceId, out string message)
+        /// <summary>把辅助标志从背包搬进已选行动格子。失败时 message 说明原因。</summary>
+        private bool TakeAssist(PlacedItem item, ItemDefinition definition, out string message)
         {
-            if (_selectedAssistIds.Contains(instanceId))
-            {
-                _selectedAssistIds.Remove(instanceId);
-                SyncAssistIds();
-                RefreshSelected();
-                message = "已从已选行动移除辅助标志。";
-                return true;
-            }
-
-            PlacedItem item;
-            if (_bag == null || !_bag.TryGet(instanceId, out item))
-            {
-                message = "物品不存在。";
-                return false;
-            }
-
-            ItemDefinition definition;
-            if (_combinedCatalog == null || !_combinedCatalog.TryGet(item.DefinitionId, out definition)
-                || definition.Assist == null)
+            if (item == null || definition == null || definition.Assist == null || _selectedActionBag == null)
             {
                 message = "这不是探索辅助标志。";
                 return false;
             }
 
-            if (_selectedAssistIds.Count >= 3)
+            List<PlacedItem> current = SelectedAssistItems();
+            if (current.Count >= MaxAssists)
             {
-                message = "已选行动最多放 3 个辅助标志。";
+                message = "已选行动最多放 " + MaxAssists + " 个辅助标志。";
                 return false;
             }
 
-            for (int i = 0; i < _selectedAssistIds.Count; i++)
+            for (int i = 0; i < current.Count; i++)
             {
-                PlacedItem other;
-                ItemDefinition otherDefinition;
-                if (_bag.TryGet(_selectedAssistIds[i], out other)
-                    && _combinedCatalog.TryGet(other.DefinitionId, out otherDefinition)
-                    && otherDefinition.Assist != null
-                    && otherDefinition.Assist.Family == definition.Assist.Family)
+                ItemDefinition other;
+                if (_combinedCatalog.TryGet(current[i].DefinitionId, out other)
+                    && other.Assist != null
+                    && !string.IsNullOrEmpty(definition.Assist.Family)
+                    && other.Assist.Family == definition.Assist.Family)
                 {
                     message = "同系列辅助只能携带一个。";
                     return false;
@@ -1170,130 +1197,202 @@ namespace BitRunner.Game
                 return false;
             }
 
-            _selectedAssistIds.Add(instanceId);
-            SyncAssistIds();
-            RefreshSelected();
-            message = "已加入 " + definition.DisplayName + "（耐久 " + durability + "/" + definition.DurabilityMax + "）。";
+            PlacedItem placed;
+            string error;
+            if (!_selectedActionBag.TryAddOrStack(
+                    definition.Id,
+                    item.BaseShape,
+                    item.Rotatable,
+                    item.Count,
+                    definition.MaxStack,
+                    out placed,
+                    out error))
+            {
+                message = "已选行动格子里放不下了。";
+                return false;
+            }
+
+            ItemTransfer.PreserveAll(item, placed);
+            if (_bag != null)
+            {
+                _bag.Remove(item.InstanceId);
+            }
+
+            message = "已把 " + definition.DisplayName + " 放进已选行动（耐久 "
+                      + ItemDurability.Current(placed, definition) + "/" + definition.DurabilityMax + "）。";
             return true;
         }
 
-        private void RemoveAssistAt(int index)
+        /// <summary>把辅助标志从已选行动搬回背包（背包满了退到保险箱）。</summary>
+        private bool ReturnAssist(PlacedItem item, ItemDefinition definition, out string message)
         {
-            if (index < 0 || index >= _selectedAssistIds.Count)
+            if (item == null || _selectedActionBag == null)
+            {
+                message = "物品不存在。";
+                return false;
+            }
+
+            PlacedItem placed;
+            string error;
+            if (_bag != null && _bag.TryAddOrStack(
+                    item.DefinitionId,
+                    item.BaseShape,
+                    item.Rotatable,
+                    item.Count,
+                    definition != null ? definition.MaxStack : 1,
+                    out placed,
+                    out error))
+            {
+                ItemTransfer.PreserveAll(item, placed);
+                _selectedActionBag.Remove(item.InstanceId);
+                message = "已取回 " + (definition != null ? definition.DisplayName : item.DefinitionId) + "。";
+                return true;
+            }
+
+            if (definition != null
+                && _secure != null
+                && SecureContainerRules.IsEligible(definition)
+                && _secure.TryAddOrStack(
+                    item.DefinitionId,
+                    item.BaseShape,
+                    item.Rotatable,
+                    item.Count,
+                    definition.MaxStack,
+                    out placed,
+                    out error))
+            {
+                ItemTransfer.PreserveAll(item, placed);
+                _selectedActionBag.Remove(item.InstanceId);
+                message = "背包满了，" + definition.DisplayName + " 放进了保险箱。";
+                return true;
+            }
+
+            message = "背包和保险箱都没有空位，"
+                      + (definition != null ? definition.DisplayName : "辅助标志") + " 先留在已选行动里。";
+            return false;
+        }
+
+        /// <summary>离场 / 通关前把已选行动里的辅助标志全部收回背包，免得跟着临时格子一起消失。</summary>
+        private void ReturnSelectedAssistsToBag()
+        {
+            if (_selectedActionBag == null)
             {
                 return;
             }
 
-            _selectedAssistIds.RemoveAt(index);
-            SyncAssistIds();
-            SetNarration("已移除辅助标志。");
-            RefreshSelected();
-        }
-
-        private void SyncAssistIds()
-        {
-            GameSession.ExpeditionAssistIds.Clear();
-            for (int i = 0; i < _selectedAssistIds.Count; i++)
+            var snapshot = new List<PlacedItem>(_selectedActionBag.Items);
+            for (int i = 0; i < snapshot.Count; i++)
             {
-                GameSession.ExpeditionAssistIds.Add(_selectedAssistIds[i]);
+                ItemDefinition definition;
+                if (!_combinedCatalog.TryGet(snapshot[i].DefinitionId, out definition) || definition.Assist == null)
+                {
+                    continue;
+                }
+
+                string ignored;
+                ReturnAssist(snapshot[i], definition, out ignored);
             }
         }
 
+        /// <summary>已选行动格子里的"主物品"：行动或待用道具。辅助标志不算。</summary>
+        private PlacedItem PrimarySelectedItem()
+        {
+            if (_selectedActionBag == null || _combinedCatalog == null)
+            {
+                return null;
+            }
+
+            PlacedItem fallback = null;
+            IReadOnlyList<PlacedItem> items = _selectedActionBag.Items;
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDefinition definition;
+                if (_combinedCatalog.TryGet(items[i].DefinitionId, out definition) && definition.Assist != null)
+                {
+                    continue;
+                }
+
+                if (_scenario != null && _scenario.Find(items[i].DefinitionId) != null)
+                {
+                    return items[i];
+                }
+
+                if (fallback == null)
+                {
+                    fallback = items[i];
+                }
+            }
+
+            return fallback;
+        }
+
+        /// <summary><see cref="ExpeditionSelectionRules"/> 只认"一个物品"，所以单独包成数组。</summary>
+        private IReadOnlyList<PlacedItem> SelectedPrimaryItems()
+        {
+            PlacedItem primary = PrimarySelectedItem();
+            return primary == null ? null : new[] { primary };
+        }
+
+        /// <summary>把已选行动里除辅助标志以外的东西清掉（执行完一次行动后调用）。</summary>
+        private void ClearPrimaryFromSelected()
+        {
+            if (_selectedActionBag == null || _combinedCatalog == null)
+            {
+                return;
+            }
+
+            var snapshot = new List<PlacedItem>(_selectedActionBag.Items);
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                ItemDefinition definition;
+                if (_combinedCatalog.TryGet(snapshot[i].DefinitionId, out definition) && definition.Assist != null)
+                {
+                    continue;
+                }
+
+                _selectedActionBag.Remove(snapshot[i].InstanceId);
+            }
+        }
+
+        /// <summary>已选行动里的辅助标志（实物，最多 <see cref="MaxAssists"/> 个）。</summary>
         private List<PlacedItem> SelectedAssistItems()
         {
             var result = new List<PlacedItem>();
-            if (_bag == null || _combinedCatalog == null)
+            if (_selectedActionBag == null || _combinedCatalog == null)
             {
                 return result;
             }
 
-            bool changed = false;
-            for (int i = _selectedAssistIds.Count - 1; i >= 0; i--)
+            IReadOnlyList<PlacedItem> items = _selectedActionBag.Items;
+            for (int i = 0; i < items.Count; i++)
             {
-                PlacedItem item;
                 ItemDefinition definition;
-                if (!_bag.TryGet(_selectedAssistIds[i], out item)
-                    || !_combinedCatalog.TryGet(item.DefinitionId, out definition)
-                    || definition.Assist == null
-                    || ItemDurability.Current(item, definition) <= 0)
+                if (!_combinedCatalog.TryGet(items[i].DefinitionId, out definition) || definition.Assist == null)
                 {
-                    _selectedAssistIds.RemoveAt(i);
-                    changed = true;
                     continue;
                 }
 
-                result.Insert(0, item);
-            }
+                if (ItemDurability.Current(items[i], definition) <= 0)
+                {
+                    continue;
+                }
 
-            if (changed)
-            {
-                SyncAssistIds();
+                result.Add(items[i]);
             }
 
             return result;
         }
 
-        private void RefreshAssistChips()
+        private void RefreshAssistHint()
         {
-            SelectedAssistItems();
-            if (_assistHint != null)
+            if (_assistHint == null)
             {
-                _assistHint.text = "辅助 " + _selectedAssistIds.Count + "/3 · 拖入标志";
-                _assistHint.color = _selectedAssistIds.Count >= 3 ? WarningColor : MutedColor;
+                return;
             }
 
-            for (int i = 0; i < _assistChipRects.Count; i++)
-            {
-                bool show = i < _selectedAssistIds.Count;
-                _assistChipRects[i].gameObject.SetActive(show);
-                if (!show)
-                {
-                    continue;
-                }
-
-                PlacedItem item;
-                ItemDefinition definition;
-                if (_bag == null || !_bag.TryGet(_selectedAssistIds[i], out item)
-                    || _combinedCatalog == null || !_combinedCatalog.TryGet(item.DefinitionId, out definition)
-                    || definition.Assist == null)
-                {
-                    _assistChipRects[i].gameObject.SetActive(false);
-                    continue;
-                }
-
-                string glyph = definition.DisplayName.Length > 0 ? definition.DisplayName.Substring(0, 1) : "辅";
-                int durability = ItemDurability.Current(item, definition);
-                _assistChipTexts[i].text = glyph + "\n" + durability;
-                _assistChipTexts[i].color = AssistChipColor(definition.Assist.Family);
-                _assistChipRects[i].GetComponent<Image>().color = AssistChipBackground(definition.Assist.Family);
-            }
-        }
-
-        private PlacedItem FindHoveredAssist(Vector2 screen)
-        {
-            if (_bag == null)
-            {
-                return null;
-            }
-
-            for (int i = 0; i < _assistChipRects.Count && i < _selectedAssistIds.Count; i++)
-            {
-                if (!_assistChipRects[i].gameObject.activeSelf)
-                {
-                    continue;
-                }
-
-                if (RectTransformUtility.RectangleContainsScreenPoint(_assistChipRects[i], screen, null))
-                {
-                    PlacedItem item;
-                    if (_bag.TryGet(_selectedAssistIds[i], out item))
-                    {
-                        return item;
-                    }
-                }
-            }
-
-            return null;
+            int count = SelectedAssistItems().Count;
+            _assistHint.text = "辅助 " + count + "/" + MaxAssists + " · 拖入标志";
+            _assistHint.color = count >= MaxAssists ? WarningColor : MutedColor;
         }
 
         private bool IsExpeditionUsableItem(PlacedItem item)
@@ -1320,36 +1419,6 @@ namespace BitRunner.Game
             }
 
             return ItemUse.CanUseOutsideCombat(definition);
-        }
-
-        private static Color AssistChipColor(string family)
-        {
-            switch (family)
-            {
-                case "light":
-                    return new Color(0.98f, 0.82f, 0.48f, 1f);
-                case "muffle":
-                    return new Color(0.58f, 0.78f, 0.96f, 1f);
-                case "ward":
-                    return new Color(0.62f, 0.88f, 0.66f, 1f);
-                default:
-                    return Color.white;
-            }
-        }
-
-        private static Color AssistChipBackground(string family)
-        {
-            switch (family)
-            {
-                case "light":
-                    return new Color32(74, 58, 30, 255);
-                case "muffle":
-                    return new Color32(32, 54, 74, 255);
-                case "ward":
-                    return new Color32(34, 66, 42, 255);
-                default:
-                    return new Color32(42, 48, 57, 255);
-            }
         }
 
         private static string OutcomeSummary(ExpeditionActionOption action)
@@ -1420,21 +1489,7 @@ namespace BitRunner.Game
 
             _assistHint = CreateText(
                 panel, "AssistHint", "辅助 0/3", FontCaption, MutedColor,
-                new Vector2(80f, -146f), new Vector2(110f, 10f), TextAnchor.UpperLeft);
-
-            for (int i = 0; i < 3; i++)
-            {
-                RectTransform chip = CreateCenteredPanel(
-                    panel,
-                    "Assist" + i,
-                    ShellRegions.LocalIn(stage, 196f + i * 20f, 144f, 16f, 16f),
-                    new Vector2(16f, 16f),
-                    new Color32(42, 48, 57, 255));
-                Text chipText = CreateCenteredText(chip, "Label", string.Empty, 6, TextColor, Vector2.zero, new Vector2(16f, 16f));
-                chip.gameObject.SetActive(false);
-                _assistChipRects.Add(chip);
-                _assistChipTexts.Add(chipText);
-            }
+                new Vector2(80f, -146f), new Vector2(180f, 10f), TextAnchor.UpperLeft);
         }
 
         /// <summary>B 主行动条：整个区域就是一个按钮。位置、尺寸、字号与基地的「出征」逐像素相同。</summary>
@@ -1444,7 +1499,7 @@ namespace BitRunner.Game
                 region, "Execute", Vector2.zero, ShellRegions.SizeOf(ShellRegions.PrimaryAction), AccentColor);
             AddBorder(_confirmRect, new Color32(96, 142, 186, 255));
             _confirmText = CreateCenteredText(
-                _confirmRect, "Label", "执行", FontTitle, MutedColor, Vector2.zero, new Vector2(156f, 26f));
+                _confirmRect, "Label", "执行", FontTitle, MutedColor, Vector2.zero, new Vector2(166f, 22f));
         }
 
         /// <summary>
@@ -1510,6 +1565,17 @@ namespace BitRunner.Game
                 panel, "Body", string.Empty, FontSecondary, MutedColor,
                 new Vector2(8f, -24f), new Vector2(168f, 94f), TextAnchor.UpperLeft);
             _detailText.verticalOverflow = VerticalWrapMode.Truncate;
+
+            // 丢弃区：保险箱正上方那块空位（F 带里唯一没被占的角落）。
+            // 挂在 Dock 容器下，压栈进战斗时随整屏一起隐藏、离场时随容器销毁。
+            Rect bin = ShellRegions.DiscardBin;
+            Rect dock = ShellRegions.BenchMid;
+            _discardRect = CreateCenteredPanel(
+                region, "DiscardBin",
+                ShellRegions.LocalIn(dock, bin.x - dock.x, bin.y - dock.y, bin.width, bin.height),
+                ShellRegions.SizeOf(bin), DiscardColor);
+            AddBorder(_discardRect, DiscardHighlightColor);
+            CreateCenteredText(_discardRect, "Label", "丢弃", FontCaption, TextColor, Vector2.zero, new Vector2(58f, 18f));
         }
 
         private void BuildContainerWindows()
@@ -1539,7 +1605,7 @@ namespace BitRunner.Game
                 _actionPalette,
                 _shell.DragLayer,
                 null,
-                null);
+                _discardRect);
             _actionDrag.Changed += OnActionBagChanged;
             _actionDrag.ItemClicked += OnActionItemClicked;
             _actionDrag.TrySpecialDrop = TryAssistDrop;
@@ -1575,8 +1641,8 @@ namespace BitRunner.Game
             _secureView = _bagSecureRect.gameObject.AddComponent<BagView>();
             _secureView.Initialize(_secure, _bagSecureRect, _palette);
 
-            _bagDiscardRect = CreateCenteredPanel(box, "Discard", new Vector2(100f, -116f), new Vector2(120f, 24f), new Color32(58, 46, 34, 255));
-            CreateCenteredText(_bagDiscardRect, "Label", "丢弃区", 8, MutedColor, Vector2.zero, new Vector2(116f, 22f));
+            _bagDiscardRect = CreateCenteredPanel(box, "Discard", new Vector2(100f, -116f), new Vector2(120f, 24f), DiscardColor);
+            CreateCenteredText(_bagDiscardRect, "Label", "丢弃区", 8, TextColor, Vector2.zero, new Vector2(116f, 22f));
 
             _bagCloseRect = CreateCenteredPanel(box, "Close", new Vector2(215f, -126f), new Vector2(90f, 24f), new Color32(44, 48, 56, 255));
             CreateCenteredText(_bagCloseRect, "Label", "关闭", 9, TextColor, Vector2.zero, new Vector2(86f, 22f));
@@ -1626,8 +1692,8 @@ namespace BitRunner.Game
             _lootDiscardRect = CreateCenteredPanel(
                 _lootPanelRect, "Discard",
                 ShellRegions.LocalIn(dock, 8f, 128f, 160f, 14f),
-                new Vector2(160f, 14f), new Color32(58, 46, 34, 255));
-            CreateCenteredText(_lootDiscardRect, "Label", "丢弃区", FontCaption, MutedColor, Vector2.zero, new Vector2(156f, 12f));
+                new Vector2(160f, 14f), DiscardColor);
+            CreateCenteredText(_lootDiscardRect, "Label", "丢弃区", FontCaption, TextColor, Vector2.zero, new Vector2(156f, 12f));
 
             _lootAllRect = CreateCenteredPanel(
                 _lootPanelRect, "LootAll",
@@ -1847,16 +1913,22 @@ namespace BitRunner.Game
             if (taken == 0)
             {
                 SetNarration("背包和保险箱都装不下了。");
-            }
-            else
-            {
-                string message = "拿走了 " + taken + " 件物资（估 ¥" + value + "）。";
-                AppendLog(message);
-                SetNarration(message);
+                RefreshLootPanel();
+                RefreshStatus();
+                return;
             }
 
+            string message = "拿走了 " + taken + " 件物资（估 ¥" + value + "）。";
+            AppendLog(message);
+            SetNarration(message);
             RefreshLootPanel();
             RefreshStatus();
+
+            // 搬空了就自己收摊：留一块空面板在那儿等玩家再点一次「关闭」没有意义。
+            if (_lootBag != null && _lootBag.Count == 0)
+            {
+                CloseLoot(true);
+            }
         }
 
         private bool TryStoreLoot(PlacedItem item, ItemDefinition definition)
@@ -1893,7 +1965,8 @@ namespace BitRunner.Game
             return false;
         }
 
-        private void CloseLoot()
+        /// <summary>关闭搜刮面板。<paramref name="auto"/> = 搬空了自动收摊，不再补一遍"已清空"的日志。</summary>
+        private void CloseLoot(bool auto = false)
         {
             if (_lootOpen)
             {
@@ -1924,18 +1997,18 @@ namespace BitRunner.Game
                 _actionDrag.enabled = true;
             }
 
-            if (_lootBag != null && _lootBag.Count > 0)
+            if (!auto)
             {
-                AppendLog("你离开了容器，剩下的东西留在原地。");
-            }
-            else
-            {
-                AppendLog("容器已经被清空。");
+                AppendLog(_lootBag != null && _lootBag.Count > 0
+                    ? "你离开了容器，剩下的东西留在原地。"
+                    : "容器已经被清空。");
             }
 
             _lootBag = null;
             RefreshAll();
-            SetNarration("物资已经处理完。下一步该往哪里走？");
+            SetNarration(auto
+                ? "搜刮完了，容器空了。下一步该往哪里走？"
+                : "物资已经处理完。下一步该往哪里走？");
         }
 
         private void OnLootChanged()
@@ -2083,18 +2156,6 @@ namespace BitRunner.Game
                 if (_itemTooltipPanel != null)
                 {
                     _itemTooltipPanel.SetActive(false);
-                }
-
-                return;
-            }
-
-            PlacedItem assist = FindHoveredAssist(screen);
-            if (assist != null)
-            {
-                ItemDefinition assistDefinition;
-                if (_combinedCatalog.TryGet(assist.DefinitionId, out assistDefinition))
-                {
-                    ShowItemTooltip(assist, assistDefinition, screen);
                 }
 
                 return;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using BitRunner.Core;
@@ -455,7 +455,7 @@ namespace BitRunner.Game
             AddBorder(_endTurnRect, new Color32(96, 142, 186, 255));
             _endTurnImage = _endTurnRect.GetComponent<Image>();
             _endTurnText = CreateCenteredText(
-                _endTurnRect, "Label", "结束回合", FontTitle, TextColor, Vector2.zero, new Vector2(166f, 24f));
+                _endTurnRect, "Label", "结束回合", FontTitle, TextColor, Vector2.zero, new Vector2(166f, 22f));
 
             // 次要按钮挂在 ScreenLayer 上：它们的位置与主按钮无关，靠 ScreenRegion 的绝对坐标定位。
             _secondaryRect = CreateCenteredPanel(
@@ -638,8 +638,8 @@ namespace BitRunner.Game
             _discardRect = CreateCenteredPanel(
                 panel, "Discard",
                 ShellRegions.LocalIn(board, 108f, 100f, 68f, 18f),
-                new Vector2(68f, 18f), SellColor);
-            CreateCenteredText(_discardRect, "Label", "丢弃", FontCaption, MutedColor, Vector2.zero, new Vector2(64f, 16f));
+                new Vector2(68f, 18f), DiscardColor);
+            CreateCenteredText(_discardRect, "Label", "丢弃", FontCaption, TextColor, Vector2.zero, new Vector2(64f, 16f));
         }
 
         /// <summary>

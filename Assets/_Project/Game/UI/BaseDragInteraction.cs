@@ -30,6 +30,10 @@ namespace BitRunner.Game
         private static readonly Color SellBinColor = new Color32(58, 46, 34, 255);
         private static readonly Color SellBinHighlightColor = new Color32(112, 84, 46, 255);
 
+        /// <summary>丢弃区恒为红：它删东西，配色必须和"卖出换钱"的棕色区分开。</summary>
+        private static readonly Color DiscardBinColor = UiTheme.DiscardColor;
+        private static readonly Color DiscardBinHighlightColor = UiTheme.DiscardHighlightColor;
+
         private readonly List<BaseBagSource> _sources = new List<BaseBagSource>();
         private readonly List<BaseBagSource> _persistentSources = new List<BaseBagSource>();
         private readonly Dictionary<string, Sprite> _spriteCache = new Dictionary<string, Sprite>();
@@ -213,7 +217,8 @@ namespace BitRunner.Game
             _discardBinImage = discardBin != null ? discardBin.GetComponent<Image>() : null;
             if (_discardBinImage != null)
             {
-                _discardBinImage.color = SellBinColor;
+                // 丢弃区恒红（原来这里错写成 SellBinColor，把红色盖成了卖出用的棕色）。
+                _discardBinImage.color = DiscardBinColor;
             }
 
             var go = new GameObject("BaseDragGhost", typeof(RectTransform), typeof(Image));
@@ -507,7 +512,7 @@ namespace BitRunner.Game
 
                 if (_discardBinImage != null)
                 {
-                    _discardBinImage.color = SellBinHighlightColor;
+                    _discardBinImage.color = DiscardBinHighlightColor;
                 }
 
                 return;
@@ -613,6 +618,13 @@ namespace BitRunner.Game
                 }
 
                 return false;
+            }
+
+            // 特殊落点（例如探索的"已选行动"）自己决定怎么处理：它要做的可能是
+            // "把辅助标志搬进格子"这类带校验的动作，而不是普通的放进背包。
+            if (TrySpecialDrop != null && TrySpecialDrop(source, item, target))
+            {
+                return true;
             }
 
             ItemDefinition definition = _catalog.Get(item.DefinitionId);
@@ -1103,7 +1115,7 @@ namespace BitRunner.Game
         {
             if (_discardBinImage != null)
             {
-                _discardBinImage.color = SellBinColor;
+                _discardBinImage.color = DiscardBinColor;
             }
         }
 
