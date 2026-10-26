@@ -112,11 +112,11 @@ namespace BitRunner.Game
         /// <summary>左栏最多几行。基地 4 行、探索 5 行，留 6 个槽够用且不会重建。</summary>
         private const int StatusSlotCount = 6;
 
-        /// <summary>日志最多保留几行。150×124 的面板在字号 7 下约放得下 9 行。</summary>
-        private const int MaxLogEntries = 9;
+        /// <summary>日志最多保留几行。150×104 的面板在字号 7 下约放得下 8 行。</summary>
+        private const int MaxLogEntries = 8;
 
         /// <summary>日志按字符计的容量上限，超出从最旧的开始丢。见 <see cref="AppendLog"/>。</summary>
-        private const int LogCharBudget = 170;
+        private const int LogCharBudget = 150;
 
         public static GameShell Instance { get; private set; }
 
@@ -326,9 +326,12 @@ namespace BitRunner.Game
             RegionLayer = CreateLayer("RegionLayer");
             ScreenLayer = CreateLayer("ScreenLayer");
             DragLayer = CreateLayer("DragLayer");
-            TooltipLayer = CreateLayer("TooltipLayer");
             OverlayLayer = CreateLayer("OverlayLayer");
             EndLayer = CreateLayer("EndLayer");
+
+            // 物品提示必须是**最上层**：它要在浮动窗口（OverlayLayer）、结局界面（EndLayer）
+            // 和所有面板之上，否则"悬停在菜单里，提示被菜单盖住"。所以它排在最后建。
+            TooltipLayer = CreateLayer("TooltipLayer");
 
             BuildRegionContainers();
             BuildBenchPlate();
@@ -786,7 +789,7 @@ namespace BitRunner.Game
                 UiTheme.FontCaption,
                 UiTheme.MutedColor,
                 new Vector2(8f, -20f),
-                new Vector2(134f, 98f),
+                new Vector2(134f, ShellRegions.Log.height - 26f),
                 TextAnchor.UpperLeft);
         }
     }

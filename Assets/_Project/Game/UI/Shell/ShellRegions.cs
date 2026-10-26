@@ -26,12 +26,18 @@ namespace BitRunner.Game
         /// <summary>A 账本：周·天 / 应缴·已缴 / bit / 债务进度条。出自 BuildHud。</summary>
         public static readonly Rect Hud = new Rect(8f, 2f, 170f, 74f);
 
-        /// <summary>B 主行动条的主按钮：出征 / 执行 / 结束回合。出自 BuildDeploy。</summary>
-        public static readonly Rect PrimaryAction = new Rect(455f, 14f, 160f, 28f);
+        /// <summary>
+        /// B 主行动条：出征 / 执行 / 结束回合。三种模式共用同一个矩形——这是全屏最常点的一颗。
+        ///
+        /// 位置在**右侧命令列**：行动/背包菜单正下方、日志正上方。原来它在右上角与日志同高，
+        /// 离玩家的视线中心（左中 + 中下）太远；挪到这一列之后，垂直方向从"菜单 → 主按钮 → 日志"
+        /// 一路读下来，右下角那片大留白也不再空着。
+        /// </summary>
+        public static readonly Rect PrimaryAction = new Rect(465f, 216f, 170f, 26f);
 
-        /// <summary>B 区次要按钮位（从主按钮左侧开始向左排）：撤离、动画速度等。</summary>
-        public static readonly Rect SecondaryAction1 = new Rect(389f, 19f, 60f, 18f);
-        public static readonly Rect SecondaryAction2 = new Rect(325f, 19f, 60f, 18f);
+        /// <summary>战斗用的两枚次要按钮（撤离 / 动画速度），落在主按钮让出来的右上角空位。</summary>
+        public static readonly Rect SecondaryAction1 = new Rect(455f, 16f, 74f, 22f);
+        public static readonly Rect SecondaryAction2 = new Rect(535f, 16f, 100f, 22f);
 
         /// <summary>D 侧栏：页签行 + 内容区。出自 BuildRightPanel。</summary>
         public static readonly Rect Side = new Rect(465f, 55f, 170f, 160f);
@@ -54,8 +60,8 @@ namespace BitRunner.Game
         /// <summary>F3 保险箱：同上，永不重建。</summary>
         public static readonly Rect BenchSecure = new Rect(399f, 266f, 76f, 84f);
 
-        /// <summary>G 日志：右下角，跨模式连续追加，不清空。出自 BuildLog。</summary>
-        public static readonly Rect Log = new Rect(486f, 226f, 150f, 124f);
+        /// <summary>G 日志：右下角，跨模式连续追加，不清空。出自 BuildLog。让出 22px 给上方的主按钮。</summary>
+        public static readonly Rect Log = new Rect(486f, 246f, 150f, 104f);
 
         // ---- Screen 可建：三种模式三选一 ----
 

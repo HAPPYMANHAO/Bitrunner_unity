@@ -443,8 +443,10 @@ namespace BitRunner.Game
 
         /// <summary>
         /// B 主行动条：整个区域就是一颗按钮，"结束回合 / 返回地点 / 离开"共用同一个矩形。
-        /// 与探索的「执行」、基地的「出征」逐像素相同（ShellRegions.PrimaryAction）。
-        /// 两侧的次要按钮落在 ShellRegions.SecondaryAction1/2，即主按钮左边那条空白带。
+        /// 与探索的「执行」、基地的「出征」是同一颗（ShellRegions.PrimaryAction，右侧命令列）。
+        ///
+        /// 次要按钮（撤离 / 动画速度）不跟着主按钮下去：那一列只剩主按钮一条，
+        /// 它们留在主按钮让出来的右上角，作为这场战斗的两个副操作。
         /// </summary>
         private void BuildPrimary(RectTransform region)
         {
@@ -453,22 +455,24 @@ namespace BitRunner.Game
             AddBorder(_endTurnRect, new Color32(96, 142, 186, 255));
             _endTurnImage = _endTurnRect.GetComponent<Image>();
             _endTurnText = CreateCenteredText(
-                _endTurnRect, "Label", "结束回合", FontTitle, TextColor, Vector2.zero, new Vector2(156f, 26f));
+                _endTurnRect, "Label", "结束回合", FontTitle, TextColor, Vector2.zero, new Vector2(166f, 24f));
 
-            // 次要按钮：撤离（搜刮阶段的「搜刮全部」在 F2 战利品板上，不占这里）。
-            Vector2 retreatCenter = ToRegion(ShellRegions.CenterOf(ShellRegions.SecondaryAction1), ShellRegions.PrimaryAction);
+            // 次要按钮挂在 ScreenLayer 上：它们的位置与主按钮无关，靠 ScreenRegion 的绝对坐标定位。
             _secondaryRect = CreateCenteredPanel(
-                region, "Secondary", retreatCenter, ShellRegions.SizeOf(ShellRegions.SecondaryAction1), RetreatColor);
+                _shell.ScreenLayer, "Secondary",
+                ShellRegions.CenterOf(ShellRegions.SecondaryAction1),
+                ShellRegions.SizeOf(ShellRegions.SecondaryAction1), RetreatColor);
             _secondaryImage = _secondaryRect.GetComponent<Image>();
             _secondaryText = CreateCenteredText(
-                _secondaryRect, "Label", "撤离", FontBody, TextColor, Vector2.zero, new Vector2(56f, 16f));
+                _secondaryRect, "Label", "撤离", FontBody, TextColor, Vector2.zero, new Vector2(70f, 20f));
 
-            Vector2 speedCenter = ToRegion(ShellRegions.CenterOf(ShellRegions.SecondaryAction2), ShellRegions.PrimaryAction);
             _speedRect = CreateCenteredPanel(
-                region, "AnimationSpeed", speedCenter, ShellRegions.SizeOf(ShellRegions.SecondaryAction2),
+                _shell.ScreenLayer, "AnimationSpeed",
+                ShellRegions.CenterOf(ShellRegions.SecondaryAction2),
+                ShellRegions.SizeOf(ShellRegions.SecondaryAction2),
                 new Color32(40, 46, 56, 255));
             _speedText = CreateCenteredText(
-                _speedRect, "Label", "动画 " + _animationSpeed + "×", FontBody, MutedColor, Vector2.zero, new Vector2(56f, 16f));
+                _speedRect, "Label", "动画 " + _animationSpeed + "×", FontBody, MutedColor, Vector2.zero, new Vector2(96f, 20f));
         }
 
         /// <summary>把"相对画布中心"的坐标换成"相对某个区域容器中心"的坐标。</summary>
@@ -1368,6 +1372,22 @@ namespace BitRunner.Game
             {
                 Destroy(_messageText.gameObject);
                 _messageText = null;
+            }
+
+            // 撤离 / 动画速度也挂在 ScreenLayer 上（不属于任何 Screen 洞），要自己收。
+            if (_secondaryRect != null)
+            {
+                Destroy(_secondaryRect.gameObject);
+                _secondaryRect = null;
+                _secondaryImage = null;
+                _secondaryText = null;
+            }
+
+            if (_speedRect != null)
+            {
+                Destroy(_speedRect.gameObject);
+                _speedRect = null;
+                _speedText = null;
             }
 
             if (_tooltipPanel != null)

@@ -47,6 +47,7 @@ namespace BitRunner.Game
         private RectTransform _selectedActionBagRect;
         private RectTransform _tabActionRect;
         private RectTransform _tabBagRect;
+        private RectTransform _sidePanelRect;
         private BaseDragInteraction _actionDrag;
         private string _selectedActionId;
         private readonly List<int> _selectedAssistIds = new List<int>();
@@ -263,6 +264,10 @@ namespace BitRunner.Game
                         TakeAllLoot();
                         return;
                     }
+
+                    // 搜刮没结束就想去点行动：不静默吞掉，直接告诉他为什么点不动。
+                    // 这三块是玩家最可能去点的：主按钮（执行）、行动/背包菜单、已选行动。
+                    ShowLootBlocksHint(screen);
                 }
 
                 return;
@@ -689,11 +694,14 @@ namespace BitRunner.Game
 
             if (source.Name == "SELECTED")
             {
+                // 双击取回：行动物品回行动袋，普通物品回背包。
+                // 背包页签没打开时侧栏没有 PACK 源，但外壳的 F1 一定在——退到它，取回不会失效。
                 bool isAction = _scenario != null && _scenario.Find(item.DefinitionId) != null;
-                return _actionDrag.FindSource(isAction ? "ACTIONS" : "PACK");
+                BaseBagSource target = _actionDrag.FindSource(isAction ? "ACTIONS" : "PACK");
+                return target != null ? target : _actionDrag.FindSource("SHELL_PACK");
             }
 
-            if (source.Name != "ACTIONS" && source.Name != "PACK")
+            if (source.Name != "ACTIONS" && source.Name != "PACK" && source.Name != "SHELL_PACK")
             {
                 return null;
             }
@@ -750,6 +758,32 @@ namespace BitRunner.Game
                 Rect = _selectedActionBagRect,
                 View = _selectedActionView
             });
+
+            // 外壳的 F1 背包 / F3 保险箱也是拖拽源，不只是悬停源。
+            //
+            // 它们三种模式常驻在屏幕最下方，是最显眼的那块"背包"；玩家想直接从这里
+            // 拖一件消耗品到「已选行动」里用掉，如果它们不在源列表里，拖拽根本起不来
+            // ——表现为"拖进已选行动毫无反应"。放在最后，命中判定优先于侧栏那两个。
+            if (_shell != null)
+            {
+                sources.Add(new BaseBagSource
+                {
+                    Name = "SHELL_PACK",
+                    Bag = _bag,
+                    Rect = _shell.PackBagRect,
+                    View = _shell.PackView,
+                    AcceptsActionItems = false
+                });
+
+                sources.Add(new BaseBagSource
+                {
+                    Name = "SHELL_SECURE",
+                    Bag = _secure,
+                    Rect = _shell.SecureBagRect,
+                    View = _shell.SecureView,
+                    IsSecure = true
+                });
+            }
 
             return sources;
         }
@@ -1426,6 +1460,7 @@ namespace BitRunner.Game
                 region, "SidePanel", Vector2.zero, ShellRegions.SizeOf(side), PanelColor);
             AddBorder(panel, new Color32(67, 59, 47, 255));
             panel.gameObject.AddComponent<RectMask2D>();
+            _sidePanelRect = panel;
 
             _tabActionRect = CreateAnchoredPanel(panel, "TabAction", new Vector2(4f, -2f), new Vector2(82f, 18f), SelectedColor);
             CreateCenteredText(_tabActionRect, "Label", "行动", FontCaption, TextColor, Vector2.zero, new Vector2(80f, 16f));
@@ -2277,6 +2312,20 @@ namespace BitRunner.Game
         private static bool Contains(RectTransform rect, Vector2 screen)
         {
             return rect != null && RectTransformUtility.RectangleContainsScreenPoint(rect, screen, null);
+        }
+
+        /// <summary>
+        /// 搜刮还开着的时候点到"要做决定的地方"（执行 / 行动菜单 / 已选行动），
+        /// 就在旁白里说明为什么点不动。原来这种情况是完全静默的，玩家只会觉得界面卡住了。
+        /// </summary>
+        private void ShowLootBlocksHint(Vector2 screen)
+        {
+            if (Contains(_confirmRect, screen)
+                || Contains(_sidePanelRect, screen)
+                || Contains(_selectedActionBagRect, screen))
+            {
+                SetNarration("先结束搜刮：点「关闭」或「全部拿走」，再选行动。");
+            }
         }
 
         private static bool IsPointerOver(RectTransform rect)

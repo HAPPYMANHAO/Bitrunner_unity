@@ -1350,10 +1350,16 @@ namespace BitRunner.Game
         }
 
         private void BuildDeploy(Transform canvas)        {
-            _deployRect = CreateCenteredPanel(canvas, "Deploy", new Vector2(215f, 152f), new Vector2(160f, 28f), AccentColor);
+            // 出征：位置与尺寸直接取外壳常量——三种模式的「出征 / 执行 / 结束回合」是同一颗按钮，
+            // 落在右侧命令列（行动菜单下方、日志上方），见 ShellRegions.PrimaryAction。
+            _deployRect = CreateCenteredPanel(
+                canvas, "Deploy",
+                ShellRegions.CenterOf(ShellRegions.PrimaryAction),
+                ShellRegions.SizeOf(ShellRegions.PrimaryAction),
+                AccentColor);
             AddBorder(_deployRect, new Color32(96, 142, 186, 255));
             _deployImage = _deployRect.GetComponent<Image>();
-            _deployText = CreateCenteredText(_deployRect, "Label", "出征", 11, TextColor, Vector2.zero, new Vector2(156f, 26f));
+            _deployText = CreateCenteredText(_deployRect, "Label", "出征", 11, TextColor, Vector2.zero, new Vector2(166f, 24f));
         }
 
         /// <summary>
