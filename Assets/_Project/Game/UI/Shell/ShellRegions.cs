@@ -62,8 +62,22 @@ namespace BitRunner.Game
         /// <summary>C 舞台：基地=立绘台词，探索=叙事+已选行动，战斗=焦点敌人。出自 BuildArtStage。</summary>
         public static readonly Rect Stage = new Rect(185f, 45f, 270f, 170f);
 
-        /// <summary>F2 中段大板：基地=仓库，探索=结果预估，战斗=目标背包。出自 StashPanel。</summary>
+        /// <summary>F2 中段大板：基地=仓库，探索=结果预估，战斗=战利品板。出自 StashPanel。</summary>
         public static readonly Rect BenchMid = new Rect(209f, 226f, 184f, 124f);
+
+        // ---- 仅战斗使用 ----
+
+        /// <summary>
+        /// 战场带：横跨 A 的下半 + C + D。
+        ///
+        /// 战斗是唯一一个"跨洞"的模式，理由是硬的：敌人卡必须并排比较（DESIGN.md §4.3
+        /// 「敌人背包完全可见」），而三块洞各自都装不下能同时显示背包与数字的卡。
+        /// A 的账本在战斗中被 <see cref="GameShell.SetLedgerVisible"/> 关掉，正好让出左边这一截。
+        /// </summary>
+        public static readonly Rect Battlefield = new Rect(4f, 46f, 632f, 168f);
+
+        /// <summary>战斗播报行：A 账本让出来的那一条。原来这句话写在 C 舞台底部。</summary>
+        public static readonly Rect MessageLine = new Rect(10f, 12f, 440f, 20f);
 
         // ---- 已知空洞，本版不动 ----
         // 左中 (0,76,185,150)：基地现在就是留白，填上就不是"零改动"了。

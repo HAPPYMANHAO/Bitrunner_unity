@@ -46,10 +46,11 @@ namespace BitRunner.Game
             public BagView View;
         }
 
-        /// <summary>D 侧栏每一行的高度。3 行 × 44 + 6 = 138，正好等于 SideContent 的高度。</summary>
-        private const float EnemyRowHeight = 44f;
+        /// <summary>一张敌人卡的标准宽度。两张并排（300×2 + 8）刚好 608，居中留 16 边距。</summary>
+        private const float EnemyCardWidth = 300f;
 
-
+        /// <summary>卡间距。</summary>
+        private const float EnemyCardGap = 8f;
 
         private ItemCatalog _catalog;
         private CombatEngine _engine;
@@ -58,29 +59,33 @@ namespace BitRunner.Game
 
         private readonly List<BagBinding> _bags = new List<BagBinding>();
 
-        // ---- D 侧栏：每敌一行 ----
-        private readonly List<RectTransform> _enemyRows = new List<RectTransform>();
-        private readonly List<Image> _enemyRowImages = new List<Image>();
+        /// <summary>战场带容器。直接挂 ScreenLayer——它跨 A/C/D 三个区，走 Region() 要绕一圈坐标换算。</summary>
+        private RectTransform _band;
+
+        // ---- 战场带：每敌一张卡 ----
+        // 一张卡 = 一个敌人 = 名字/血量/血条/背包/能量/护盾/护甲/减伤/意图/收益/状态/底标。
+        // 分成这么多个 Text 只有一个原因：每行要在同一帧里单独改字，其它一概不拆。
+        private readonly List<RectTransform> _enemyCards = new List<RectTransform>();
+        private readonly List<Image> _enemyCardImages = new List<Image>();
         private readonly List<Text> _enemyNameTexts = new List<Text>();
         private readonly List<Text> _enemyHpTexts = new List<Text>();
         private readonly List<Image> _enemyHpFills = new List<Image>();
+        private readonly List<Text> _enemyEnergyTexts = new List<Text>();
+        private readonly List<Text> _enemyShieldTexts = new List<Text>();
+        private readonly List<Text> _enemyArmorTexts = new List<Text>();
+        private readonly List<Text> _enemyReductionTexts = new List<Text>();
         private readonly List<Text> _enemyIntentTexts = new List<Text>();
+        private readonly List<Text> _enemyLootTexts = new List<Text>();
         private readonly List<Text> _enemyStatusTexts = new List<Text>();
+        private readonly List<Text> _enemyTagTexts = new List<Text>();
         private readonly List<BagView> _enemyViews = new List<BagView>();
 
-        // ---- C 舞台：焦点敌人全细节 ----
-        private Text _focusName;
-        private Text _focusTag;
-        private Text _focusHp;
-        private Image _focusHpFill;
-        private Text _focusMeta;
-        private Text _focusArmor;
-        private Text _focusReduction;
-        private Text _focusIntent;
-        private Text _focusHint;
-
-        // ---- F2 中段大板：目标背包 ----
-        private Text _targetSubtitle;
+        // ---- F2 战利品板：这一场的账 + 搜刮收尾 ----
+        private Text _lootHeadline;
+        private Text _lootCapacity;
+        private Text _lootHint;
+        private RectTransform _lootAllRect;
+        private Text _lootAllText;
 
         private Dictionary<string, Color> _palette;
         private BagView _playerView;
@@ -149,6 +154,12 @@ namespace BitRunner.Game
         private const float AnimFlashSeconds = 0.16f;
         private const float AnimStepSeconds = 0.34f;
 
+        /// <summary>
+        /// 命中闪光的强度上限。旧战斗界面的面板只有 170×130，0.9 是"闪一下"；
+        /// 现在敌人卡是 300×168，同样的 0.9 会把整张卡冲成米色、字全看不清，所以压到 0.4。
+        /// </summary>
+        private const float AnimFlashStrength = 0.4f;
+
         private readonly List<UseAnimationStep> _animSteps = new List<UseAnimationStep>();
         private bool _animating;
         private int _animStepIndex;
@@ -159,6 +170,11 @@ namespace BitRunner.Game
         private Color _animTargetBaseColor;
         private Image _fxPulse;
         private Image _fxSpark;
+
+        // 点击瞬间的格子快照：消耗品用掉后背包里已经没有这个 ItemView 了。
+        private int _usedItemInstance = -1;
+        private RectTransform _usedItemRect;
+        private Sprite _usedItemSprite;
         private RectTransform _speedRect;
         private Text _speedText;
         private int _animationSpeed = 1;
@@ -225,7 +241,11 @@ namespace BitRunner.Game
             _screen = _shell.PushScreen("Combat");
             _canvasRect = _shell.Root;
 
+            // A 账本让位给敌人卡：战斗里不看债务，看的是面前这几个人的背包。
+            _shell.SetLedgerVisible(false);
+
             BuildLayout();
+            SetMessage("你的回合 · 点击背包里的物品使用。");
             RefreshAll();
         }
 
@@ -271,33 +291,12 @@ namespace BitRunner.Game
                 return;
             }
 
-            if (_lootPhase)
-            {
-                if (mouse.leftButton.wasPressedThisFrame
-                    && _secondaryRect != null
-                    && _secondaryRect.gameObject.activeSelf
-                    && RectTransformUtility.RectangleContainsScreenPoint(_secondaryRect, screen, null))
-                {
-                    LootAll();
-                    return;
-                }
-
-                if (mouse.leftButton.wasPressedThisFrame
-                    && RectTransformUtility.RectangleContainsScreenPoint(_endTurnRect, screen, null))
-                {
-                    FinishLoot();
-                    return;
-                }
-
-                UpdateTooltip(screen);
-                return;
-            }
-
             if (mouse.leftButton.wasPressedThisFrame)
             {
+                // 撤离：只在玩家回合出现。搜刮阶段它是隐藏的，所以这条判断天然不会误触。
                 if (_secondaryRect != null
                     && _secondaryRect.gameObject.activeSelf
-                    && RectTransformUtility.RectangleContainsScreenPoint(_secondaryRect, screen, null))
+                    && Contains(_secondaryRect, screen))
                 {
                     int retreatEventStart = _engine.Events.Count;
                     string retreatError;
@@ -317,33 +316,41 @@ namespace BitRunner.Game
                     return;
                 }
 
-                if (_endTurnRect != null
-                    && _engine.Phase == CombatPhase.PlayerTurn
-                    && RectTransformUtility.RectangleContainsScreenPoint(_endTurnRect, screen, null))
+                // 「搜刮全部」在 F2 的战利品板上，不再是 B 区的次要按钮。
+                if (_lootPhase
+                    && _lootAllRect != null
+                    && _lootAllRect.gameObject.activeSelf
+                    && Contains(_lootAllRect, screen))
                 {
-                    int turnEventStart = _engine.Events.Count;
-                    _engine.EndTurn();
-                    SetMessage("敌方回合结束");
-                    if (!StartAnimations(CollectUseSteps(turnEventStart)))
-                    {
-                        RefreshAll();
-                    }
+                    LootAll();
                     return;
                 }
 
-                for (int i = 0; i < _enemyRows.Count; i++)
+                if (_endTurnRect != null && Contains(_endTurnRect, screen))
                 {
-                    // 战斗回合里只能点活着的敌人；搜刮阶段反过来，点的是"还有东西的尸体"。
-                    bool selectable = _lootPhase
-                        ? _enemies[i].Bag.Items.Count > 0
-                        : (_enemies[i].IsAlive && !_enemies[i].HasFled);
-
-                    if (selectable && RectTransformUtility.RectangleContainsScreenPoint(_enemyRows[i], screen, null))
+                    if (_lootPhase)
                     {
-                        _selectedEnemy = i;
-                        RefreshAll();
+                        FinishLoot();
                         return;
                     }
+
+                    if (_engine.Phase == CombatPhase.PlayerTurn)
+                    {
+                        int turnEventStart = _engine.Events.Count;
+                        _engine.EndTurn();
+                        SetMessage("敌方回合结束");
+                        if (!StartAnimations(CollectUseSteps(turnEventStart)))
+                        {
+                            RefreshAll();
+                        }
+
+                        return;
+                    }
+                }
+
+                if (SelectCardAt(screen))
+                {
+                    return;
                 }
             }
 
@@ -378,8 +385,9 @@ namespace BitRunner.Game
         // ---------- 布局 ----------
 
         /// <summary>
-        /// 战斗只建四个区域的内容：B 主行动条、C 焦点敌人、D 敌人行、F2 目标背包。
-        /// A 账本 / E 左栏 / F1 背包 / F3 保险箱 / G 日志全部由外壳持有，本方法一行都不碰——
+        /// 战斗只建三块内容：B 主行动条、战场带（敌人卡）、F2 战利品板，外加 A 让出来的播报行。
+        /// A 账本在战斗中隐藏（<see cref="GameShell.SetLedgerVisible"/>），E 左栏 / F1 背包 /
+        /// F3 保险箱 / G 日志全部由外壳持有，本方法一行都不碰——
         /// 这正是"战斗前后背包里的东西还在原处、日志接着往上写"的实现方式。
         /// </summary>
         private void BuildLayout()
@@ -399,9 +407,9 @@ namespace BitRunner.Game
             _playerView.ItemEnabledPredicate = IsPlayerItemAvailable;
 
             BuildPrimary(_screen.Region(ShellRegionId.Primary));
-            BuildFocusStage(_screen.Region(ShellRegionId.Stage));
-            BuildEnemyRows(_screen.Region(ShellRegionId.Side));
-            BuildTargetDock(_screen.Region(ShellRegionId.Dock));
+            BuildBattlefield();
+            BuildLootBoard(_screen.Region(ShellRegionId.Dock));
+            BuildMessageLine();
 
             BuildTooltip(_shell.TooltipLayer);
             BuildFxLayer(_shell.DragLayer);
@@ -426,7 +434,7 @@ namespace BitRunner.Game
             _endTurnText = CreateCenteredText(
                 _endTurnRect, "Label", "结束回合", FontTitle, TextColor, Vector2.zero, new Vector2(156f, 26f));
 
-            // 次要按钮：撤离，搜刮阶段变成「搜刮全部」。两者互斥，所以共用同一个矩形。
+            // 次要按钮：撤离（搜刮阶段的「搜刮全部」在 F2 战利品板上，不占这里）。
             Vector2 retreatCenter = ToRegion(ShellRegions.CenterOf(ShellRegions.SecondaryAction1), ShellRegions.PrimaryAction);
             _secondaryRect = CreateCenteredPanel(
                 region, "Secondary", retreatCenter, ShellRegions.SizeOf(ShellRegions.SecondaryAction1), RetreatColor);
@@ -450,150 +458,176 @@ namespace BitRunner.Game
         }
 
         /// <summary>
-        /// D 侧栏：每敌一行（名称 + 血条 + 意图简写 + 状态）。
-        /// 行高 44 × 3 = 132，内容区 138，剩下 6 是余量。
-        /// 原来的三张 170×130 全卡被拆成"这里看态势 + C 区看焦点"，所以 D 里不再有背包格。
+        /// 战场带：所有敌人卡排成一行，横跨 A 的下半 + C + D（(4,46,632,168)）。
+        ///
+        /// 卡宽取 min(标准宽, 带宽均分)，整行居中。当前引擎最多 2 个敌人（主敌 + 1 随从），
+        /// 所以实际永远是 300 宽两张；3 个以上的窄版式在 <see cref="BuildEnemyCard"/> 里用宽窄分支兜住。
         /// </summary>
-        private void BuildEnemyRows(RectTransform region)
+        private void BuildBattlefield()
         {
-            for (int i = 0; i < _enemies.Count; i++)
+            int count = _enemies.Count;
+            if (count <= 0)
             {
-                CombatActor enemy = _enemies[i];
-                float y = 22f + 2f + i * EnemyRowHeight;
+                return;
+            }
 
-                RectTransform row = CreateCenteredPanel(
-                    region,
-                    "EnemyRow_" + enemy.Id,
-                    ShellRegions.LocalIn(ShellRegions.Side, 4f, y, 162f, 42f),
-                    new Vector2(162f, 42f),
-                    PanelColor);
-                _enemyRows.Add(row);
-                _enemyRowImages.Add(row.GetComponent<Image>());
+            Rect band = ShellRegions.Battlefield;
+            float width = Mathf.Min(EnemyCardWidth, (band.width - EnemyCardGap * (count - 1)) / count);
+            float total = width * count + EnemyCardGap * (count - 1);
+            float x0 = (band.width - total) * 0.5f;
 
-                _enemyNameTexts.Add(CreateText(
-                    row, "Name", enemy.DisplayName, FontTitle, TextColor,
-                    new Vector2(6f, -2f), new Vector2(96f, 13f), TextAnchor.UpperLeft));
+            _band = CreateCenteredPanel(
+                _shell.ScreenLayer, "Band_Battlefield", ShellRegions.CenterOf(band), ShellRegions.SizeOf(band),
+                new Color(0f, 0f, 0f, 0f));
+            _band.GetComponent<Image>().raycastTarget = false;
 
-                _enemyHpTexts.Add(CreateText(
-                    row, "Hp", enemy.Hp + "/" + enemy.MaxHp, FontCaption, MutedColor,
-                    new Vector2(102f, -3f), new Vector2(54f, 12f), TextAnchor.UpperRight));
-
-                _enemyHpFills.Add(CreateBar(
-                    row, "HpBar", new Vector2(6f, -16f), new Vector2(150f, 5f), EnemyHpColor));
-
-                _enemyIntentTexts.Add(CreateText(
-                    row, "Intent", string.Empty, FontCaption, MutedColor,
-                    new Vector2(6f, -23f), new Vector2(150f, 10f), TextAnchor.UpperLeft));
-
-                _enemyStatusTexts.Add(CreateText(
-                    row, "Status", string.Empty, FontCaption, MutedColor,
-                    new Vector2(6f, -32f), new Vector2(150f, 9f), TextAnchor.UpperLeft));
+            for (int i = 0; i < count; i++)
+            {
+                BuildEnemyCard(_enemies[i], x0 + i * (width + EnemyCardGap), width);
             }
         }
 
         /// <summary>
-        /// F2 中段大板：焦点敌人的背包。搜刮时它是拖拽源，平时双击可以打开成浮动窗口。
-        /// 三个敌人的背包在这里叠放，只有焦点那个激活——因为 TakeAll 是按数据走的，
-        /// 隐藏的那两个照样会被搜刮全部收走。
+        /// 一张敌人卡：左边是背包（图案），右边是数字（硬不硬），底部是意图、收益、状态。
+        ///
+        /// 这些字段必须同屏，因为 DESIGN.md §4.3 让"打谁"变成比较：
+        /// 背着金雕像的清道夫好打但肥，塞满武器的执行者硬但穷——两件事得一眼同时看到。
+        /// 之前的 C 焦点 / D 三行 / F2 目标背包三分法要求先点一遍再回来看，正是本次要修掉的问题。
         /// </summary>
-        private void BuildTargetDock(RectTransform region)
+        private void BuildEnemyCard(CombatActor enemy, float localX, float width)
         {
-            RectTransform panel = CreateCenteredPanel(
-                region, "TargetBag", Vector2.zero, ShellRegions.SizeOf(ShellRegions.BenchMid), PanelColor);
-            panel.gameObject.AddComponent<RectMask2D>();
+            float height = ShellRegions.Battlefield.height;
 
-            CreateText(
-                panel, "Title", "目标背包", FontPanelTitle, TextColor,
-                new Vector2(8f, -6f), new Vector2(168f, 12f), TextAnchor.UpperLeft);
+            RectTransform card = CreateCenteredPanel(
+                _band,
+                "EnemyCard_" + enemy.Id,
+                ShellRegions.LocalIn(ShellRegions.Battlefield, localX, 0f, width, height),
+                new Vector2(width, height),
+                PanelColor);
+            AddBorder(card, new Color32(46, 54, 66, 255));
+            card.gameObject.AddComponent<RectMask2D>();
 
-            _targetSubtitle = CreateText(
-                panel, "Subtitle", string.Empty, FontCaption, MutedColor,
-                new Vector2(8f, -20f), new Vector2(168f, 10f), TextAnchor.UpperLeft);
+            _enemyCards.Add(card);
+            _enemyCardImages.Add(card.GetComponent<Image>());
+
+            _enemyNameTexts.Add(CreateText(
+                card, "Name", enemy.DisplayName, FontTitle, TextColor,
+                new Vector2(12f, -5f), new Vector2(width - 132f, 16f), TextAnchor.UpperLeft));
+
+            _enemyHpTexts.Add(CreateText(
+                card, "Hp", string.Empty, FontBody, MutedColor,
+                new Vector2(width - 104f, -7f), new Vector2(92f, 14f), TextAnchor.UpperRight));
+
+            _enemyHpFills.Add(CreateBar(
+                card, "HpBar", new Vector2(12f, -23f), new Vector2(width - 24f, 8f), EnemyHpColor));
 
             Vector2 bagSize = new Vector2(4f * BagView.CellSize, 3f * BagView.CellSize);
-            for (int i = 0; i < _enemies.Count; i++)
-            {
-                CombatActor enemy = _enemies[i];
-                RectTransform bagRect = CreateBagRect(
-                    panel, ShellRegions.LocalIn(ShellRegions.BenchMid, 8f, 34f, bagSize.x, bagSize.y), bagSize);
-                BagView view = bagRect.gameObject.AddComponent<BagView>();
-                view.Initialize(enemy.Bag, bagRect, _palette);
-                view.ItemEnabledPredicate = item => IsEnemyItemAvailable(enemy, item);
-                _bags.Add(new BagBinding { Owner = enemy, Bag = enemy.Bag, Rect = bagRect, View = view });
-                _enemyViews.Add(view);
-                _enemyBagRects.Add(bagRect);
-                bagRect.gameObject.SetActive(i == 0);
-            }
+            RectTransform bagRect = CreateBagRect(
+                card,
+                ShellRegions.LocalIn(new Rect(0f, 0f, width, height), 12f, 40f, bagSize.x, bagSize.y),
+                bagSize);
+            BagView view = bagRect.gameObject.AddComponent<BagView>();
+            view.Initialize(enemy.Bag, bagRect, _palette);
+            view.ItemEnabledPredicate = item => IsEnemyItemAvailable(enemy, item);
+            _bags.Add(new BagBinding { Owner = enemy, Bag = enemy.Bag, Rect = bagRect, View = view });
+            _enemyViews.Add(view);
+            _enemyBagRects.Add(bagRect);
 
-            CreateText(
-                panel, "Hint", "拖物品到左边背包或右边保险箱\n双击容器可打开独立窗口",
-                FontCaption, MutedColor,
-                new Vector2(80f, -36f), new Vector2(96f, 40f), TextAnchor.UpperLeft);
+            // 头部分隔线：让"名字/血量"和下面的"背包/数字"读成两块，而不是一堆散字。
+            RectTransform divider = CreateAnchoredPanel(
+                card, "Divider", new Vector2(12f, -37f), new Vector2(width - 24f, 1f), new Color32(38, 44, 54, 255));
+            divider.GetComponent<Image>().raycastTarget = false;
 
-            // 丢弃区放 F2 右下角：把物品拖出去是最远的动作，藏在角落正合适。
+            // 数字列：能量 / 护盾 / 护甲 / 减伤，四行贴着背包右侧排。
+            // 不用两列——护甲和减伤要写满五种伤害类型，窄列会换行撞进下一行，所以一律不换行。
+            float statWidth = width - 100f;
+
+            _enemyEnergyTexts.Add(CreateNoWrapText(
+                card, "Energy", string.Empty, FontBody, TextColor, new Vector2(88f, -40f), new Vector2(statWidth, 12f)));
+
+            _enemyShieldTexts.Add(CreateNoWrapText(
+                card, "Shield", string.Empty, FontBody, TextColor, new Vector2(88f, -54f), new Vector2(statWidth, 12f)));
+
+            _enemyArmorTexts.Add(CreateNoWrapText(
+                card, "Armor", string.Empty, FontBody, MutedColor, new Vector2(88f, -68f), new Vector2(statWidth, 12f)));
+
+            _enemyReductionTexts.Add(CreateNoWrapText(
+                card, "Reduction", string.Empty, FontBody, MutedColor, new Vector2(88f, -82f), new Vector2(statWidth, 12f)));
+
+            _enemyLootTexts.Add(CreateNoWrapText(
+                card, "Loot", string.Empty, FontBody, MutedColor, new Vector2(12f, -96f), new Vector2(width - 24f, 12f)));
+
+            _enemyIntentTexts.Add(CreateNoWrapText(
+                card, "Intent", string.Empty, FontPanelTitle, AlertColor, new Vector2(12f, -112f), new Vector2(width - 24f, 14f)));
+
+            _enemyStatusTexts.Add(CreateNoWrapText(
+                card, "Status", string.Empty, FontBody, MutedColor, new Vector2(12f, -128f), new Vector2(width - 24f, 12f)));
+
+            _enemyTagTexts.Add(CreateNoWrapText(
+                card, "Tag", string.Empty, FontBody, MutedColor, new Vector2(12f, -148f), new Vector2(width - 24f, 12f)));
+        }
+
+        /// <summary>卡片里的单行文本一律不换行：宁可溢出到内边距，也不许挤到下一行的位置上。</summary>
+        private static Text CreateNoWrapText(Transform parent, string name, string content, int size, Color color, Vector2 position, Vector2 sizeDelta)
+        {
+            Text text = CreateText(parent, name, content, size, color, position, sizeDelta, TextAnchor.UpperLeft);
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            return text;
+        }
+
+        /// <summary>
+        /// F2：这一场的账。与仓库（基地）、结果预估（探索）同一个角色。
+        ///
+        /// 战斗中是"打完能拿多少、装不装得下"——这是要不要继续推的依据；
+        /// 搜刮时是进度 + 唯一的收尾动作（搜刮全部）。按钮不再借用 B 区的次要位置，
+        /// 那一格留给撤离，两件事各归其位。
+        /// </summary>
+        private void BuildLootBoard(RectTransform region)
+        {
+            Rect board = ShellRegions.BenchMid;
+            RectTransform panel = CreateCenteredPanel(region, "LootBoard", Vector2.zero, ShellRegions.SizeOf(board), PanelColor);
+            panel.gameObject.AddComponent<RectMask2D>();
+
+            CreateText(panel, "Title", "战利品", FontPanelTitle, TextColor,
+                new Vector2(8f, -6f), new Vector2(120f, 12f), TextAnchor.UpperLeft);
+
+            _lootHeadline = CreateText(panel, "Headline", string.Empty, FontBody, TextColor,
+                new Vector2(8f, -22f), new Vector2(168f, 14f), TextAnchor.UpperLeft);
+
+            _lootCapacity = CreateText(panel, "Capacity", string.Empty, FontCaption, MutedColor,
+                new Vector2(8f, -38f), new Vector2(168f, 12f), TextAnchor.UpperLeft);
+
+            _lootHint = CreateText(panel, "Hint", string.Empty, FontCaption, MutedColor,
+                new Vector2(8f, -52f), new Vector2(168f, 12f), TextAnchor.UpperLeft);
+
+            _lootAllRect = CreateCenteredPanel(
+                panel, "LootAll",
+                ShellRegions.LocalIn(board, 8f, 70f, 168f, 22f),
+                new Vector2(168f, 22f), AccentColor);
+            AddBorder(_lootAllRect, new Color32(96, 142, 186, 255));
+            _lootAllText = CreateCenteredText(
+                _lootAllRect, "Label", "搜刮全部", FontBody, TextColor, Vector2.zero, new Vector2(164f, 20f));
+            _lootAllRect.gameObject.SetActive(false);
+
+            // 丢弃区位置不动：把物品拖出去是最远的动作，藏在右下角正合适。
             _discardRect = CreateCenteredPanel(
-                panel,
-                "Discard",
-                ShellRegions.LocalIn(ShellRegions.BenchMid, 108f, 100f, 68f, 18f),
-                new Vector2(68f, 18f),
-                SellColor);
+                panel, "Discard",
+                ShellRegions.LocalIn(board, 108f, 100f, 68f, 18f),
+                new Vector2(68f, 18f), SellColor);
             CreateCenteredText(_discardRect, "Label", "丢弃", FontCaption, MutedColor, Vector2.zero, new Vector2(64f, 16f));
         }
 
         /// <summary>
-        /// C 舞台：焦点敌人的全细节。选中谁看谁——这行字替代了原来三张卡里各写一遍的护甲/减伤。
+        /// 战斗播报：A 账本在战斗中隐藏，让出的那一条正好放这句话。
+        /// 原来它写在 C 舞台最底行；C 不再存在，它必须有个新家。
         /// </summary>
-        private void BuildFocusStage(RectTransform region)
+        private void BuildMessageLine()
         {
-            Rect stage = ShellRegions.Stage;
-            RectTransform panel = CreateCenteredPanel(region, "FocusPanel", Vector2.zero, ShellRegions.SizeOf(stage), WindowColor);
-            AddBorder(panel, new Color32(67, 59, 47, 255));
-            panel.GetComponent<Image>().raycastTarget = false;
-            panel.gameObject.AddComponent<RectMask2D>();
-
-            _focusName = CreateText(
-                panel, "Name", string.Empty, FontTitle, TextColor,
-                new Vector2(10f, -8f), new Vector2(190f, 16f), TextAnchor.UpperLeft);
-
-            _focusTag = CreateText(
-                panel, "Tag", string.Empty, FontCaption, MutedColor,
-                new Vector2(190f, -10f), new Vector2(70f, 12f), TextAnchor.UpperRight);
-
-            _focusHp = CreateText(
-                panel, "Hp", string.Empty, FontTitle, TextColor,
-                new Vector2(10f, -28f), new Vector2(140f, 15f), TextAnchor.UpperLeft);
-
-            _focusMeta = CreateText(
-                panel, "Meta", string.Empty, FontCaption, MutedColor,
-                new Vector2(150f, -30f), new Vector2(110f, 12f), TextAnchor.UpperRight);
-
-            _focusHpFill = CreateBar(panel, "HpBar", new Vector2(10f, -46f), new Vector2(250f, 8f), EnemyHpColor);
-
-            _focusArmor = CreateText(
-                panel, "Armor", string.Empty, FontCaption, MutedColor,
-                new Vector2(10f, -60f), new Vector2(250f, 10f), TextAnchor.UpperLeft);
-
-            _focusReduction = CreateText(
-                panel, "Reduction", string.Empty, FontCaption, MutedColor,
-                new Vector2(10f, -72f), new Vector2(250f, 10f), TextAnchor.UpperLeft);
-
-            RectTransform divider = CreateAnchoredPanel(
-                panel, "Divider", new Vector2(10f, -88f), new Vector2(250f, 1f), new Color32(50, 58, 68, 255));
-            divider.GetComponent<Image>().raycastTarget = false;
-
-            CreateText(
-                panel, "IntentTitle", "意图", FontCaption, MutedColor,
-                new Vector2(10f, -92f), new Vector2(60f, 10f), TextAnchor.UpperLeft);
-
-            _focusIntent = CreateText(
-                panel, "Intent", string.Empty, FontBody, TextColor,
-                new Vector2(10f, -106f), new Vector2(250f, 24f), TextAnchor.UpperLeft);
-
-            // 舞台最底一行兼作消息行：点击结果、错误原因都写这里，不再单独开一块。
-            _focusHint = CreateText(
-                panel, "Hint", "点击背包里的物品使用", FontCaption, MutedColor,
-                new Vector2(10f, -146f), new Vector2(250f, 12f), TextAnchor.UpperLeft);
-            _messageText = _focusHint;
+            _messageText = CreateText(
+                _shell.ScreenLayer, "CombatMessage", string.Empty, FontBody, TextColor,
+                new Vector2(ShellRegions.MessageLine.x, -ShellRegions.MessageLine.y),
+                ShellRegions.SizeOf(ShellRegions.MessageLine),
+                TextAnchor.MiddleLeft);
         }
 
         private void BuildPlayerInteraction()
@@ -717,6 +751,11 @@ namespace BitRunner.Game
 
             CombatActor target = definition.Target == ItemTarget.Enemy ? CurrentTarget() : _player;
             int eventStart = _engine.Events.Count;
+
+            // 先用后算：消耗品一用就从背包消失，那时再去查 ItemView 已经查不到了，
+            // 脉冲和火花都不会出来。所以在这里把"格子图标 + 位置"扣下来。
+            SnapshotUsedItem(instanceId);
+
             string error;
             if (_engine.TryUseItem(_player, instanceId, target, out error))
             {
@@ -746,9 +785,8 @@ namespace BitRunner.Game
             }
 
             UpdateShell();
-            UpdateEnemyHud();
-            UpdateFocusStage();
-            UpdateTargetDock();
+            UpdateEnemyCards();
+            UpdateLootBoard();
             FlushLog();
             UpdateEndTurnButton();
             UpdateSecondaryButton();
@@ -758,6 +796,7 @@ namespace BitRunner.Game
         /// <summary>
         /// A 账本 + E 左栏。这两个区归外壳所有，战斗只负责填数——
         /// 与探索用的是同一套行布局，所以"生命 / 能量"两行在两处像素一致。
+        /// （A 区本屏是隐藏的，照样写：数据保持新鲜，弹栈回探索时不用补一次。）
         /// </summary>
         private void UpdateShell()
         {
@@ -791,100 +830,148 @@ namespace BitRunner.Game
             }
         }
 
-        /// <summary>D 侧栏三行：名字 / 血条 / 意图简写 / 状态。这里只回答"打谁、还剩多少、它想干什么"。</summary>
-        private void UpdateEnemyHud()
+        /// <summary>
+        /// 战场带：一张卡 = 一个敌人的全部可见信息。
+        /// 名字 / 血量 / 血条 / 背包 / 能量 / 护盾 / 护甲 / 减伤 / 意图 / 战利品 / 状态 / 底标。
+        /// </summary>
+        private void UpdateEnemyCards()
         {
             for (int i = 0; i < _enemies.Count; i++)
             {
                 CombatActor enemy = _enemies[i];
-                bool focused = i == _selectedEnemy && enemy.IsAlive && !enemy.HasFled;
+                bool down = !enemy.IsAlive || enemy.HasFled;
+                bool focused = i == _selectedEnemy && (_lootPhase || !down);
 
+                float ratio = enemy.MaxHp > 0 ? Mathf.Clamp01((float)enemy.Hp / enemy.MaxHp) : 0f;
                 _enemyHpTexts[i].text = enemy.Hp + "/" + enemy.MaxHp;
-                _enemyHpFills[i].fillAmount = enemy.MaxHp > 0 ? Mathf.Clamp01((float)enemy.Hp / enemy.MaxHp) : 0f;
-                _enemyNameTexts[i].color = focused || (_lootPhase && i == _selectedEnemy) ? TextColor : MutedColor;
-                _enemyIntentTexts[i].text = !enemy.IsAlive
-                    ? "已倒下"
-                    : (enemy.HasFled ? "已逃离" : ShortIntent(enemy));
-                _enemyStatusTexts[i].text = "护盾 " + enemy.Shield + "  物 " + enemy.Bag.Count
-                                            + "  " + StatusSuffix(enemy).Trim();
-                _enemyRowImages[i].color = focused || (_lootPhase && i == _selectedEnemy)
-                    ? PanelSelectedColor
-                    : PanelColor;
+                _enemyHpFills[i].fillAmount = ratio;
 
-                // 焦点敌人的背包显示在 F2；其余隐藏，但它们仍在搜刮的拖拽源列表里，
-                // 所以"搜刮全部"照样会把这几个敌人的东西收走。
-                if (i < _enemyBagRects.Count && _enemyBagRects[i] != null)
+                _enemyEnergyTexts[i].text = "能量 " + enemy.Energy + "/" + MaxEnergy(enemy);
+                _enemyShieldTexts[i].text = "护盾 " + enemy.Shield;
+                _enemyArmorTexts[i].text = ArmorLine(enemy);
+                _enemyReductionTexts[i].text = ReductionLine(enemy);
+
+                _enemyIntentTexts[i].text = down
+                    ? (enemy.HasFled ? "已逃离" : "已倒下")
+                    : "意图 " + IntentWord(enemy);
+
+                int lootCount;
+                int lootValue;
+                CountLoot(enemy.Bag, out lootCount, out lootValue);
+                _enemyLootTexts[i].text = "物 " + enemy.Bag.Count + " 件 · 战利 " + lootCount + " · ¥" + lootValue;
+
+                string status = StatusSuffix(enemy).Trim();
+                _enemyStatusTexts[i].text = status.Length == 0 ? "状态 无" : "状态 " + status;
+
+                _enemyNameTexts[i].color = down ? MutedColor : TextColor;
+                _enemyCardImages[i].color = focused ? PanelSelectedColor : (down ? DisabledColor : PanelColor);
+                _enemyHpTexts[i].color = focused ? TextColor : MutedColor;
+
+                // 搜刮阶段选中尸体也要看得出来——"正在搜刮"和"当前目标"不是一件事。
+                if (focused)
                 {
-                    // 搜刮阶段看的是"这具尸体还剩什么"，死掉的敌人也得能选中，所以判据换成下标相等。
-                    bool showBag = _lootPhase ? i == _selectedEnemy : focused;
-                    if (_enemyBagRects[i].gameObject.activeSelf != showBag)
-                    {
-                        _enemyBagRects[i].gameObject.SetActive(showBag);
-                    }
+                    _enemyTagTexts[i].text = _lootPhase ? "▍正在搜刮" : "▍当前目标";
                 }
+                else
+                {
+                    _enemyTagTexts[i].text = down ? "已倒下" : "点击切换目标";
+                }
+
+                _enemyTagTexts[i].color = focused ? LootColor : MutedColor;
             }
         }
 
         /// <summary>
-        /// 当前焦点。搜刮阶段选中的是"被搜的那具身体"，可以已经倒下；
-        /// 战斗回合里只认活着的目标——这两条规则不同，所以单独抽出来。
+        /// F2 战利品板。战斗中是"这一场能拿多少 / 还剩几格装"，
+        /// 搜刮时切成进度 + 「搜刮全部」——同一块板，两种语义对应两个阶段。
         /// </summary>
-        private CombatActor FocusActor()
+        private void UpdateLootBoard()
         {
-            if (_selectedEnemy >= 0 && _selectedEnemy < _enemies.Count)
+            int totalCount = 0;
+            int totalValue = 0;
+            for (int i = 0; i < _enemies.Count; i++)
             {
-                CombatActor picked = _enemies[_selectedEnemy];
-                if (_lootPhase || (picked.IsAlive && !picked.HasFled))
+                int count;
+                int value;
+                CountLoot(_enemies[i].Bag, out count, out value);
+                totalCount += count;
+                totalValue += value;
+            }
+
+            _lootHeadline.text = _lootPhase
+                ? "已取 ¥" + _takenValue + " · 剩余 " + totalCount + " 件"
+                : "场上 " + _enemies.Count + " 处 · " + totalCount + " 件 · 估 ¥" + totalValue;
+
+            _lootCapacity.text = "背包空 " + _player.Bag.FreeCellCount + " 格 · 保险箱空 "
+                                 + GameSession.Secure.FreeCellCount + " 格";
+
+            _lootHint.text = _lootPhase
+                ? "拖到背包或保险箱 · 双击容器展开"
+                : "点卡片切目标 · 悬停看物品";
+
+            if (_lootAllRect != null)
+            {
+                if (_lootAllRect.gameObject.activeSelf != _lootPhase)
                 {
-                    return picked;
+                    _lootAllRect.gameObject.SetActive(_lootPhase);
+                }
+
+                if (_lootPhase)
+                {
+                    _lootAllText.text = "搜刮全部（" + totalCount + "）";
+                }
+            }
+        }
+
+        /// <summary>统计一个背包里的战利品：件数 + 估值。只认 Loot 类，武器护甲是战力不是钱。</summary>
+        private void CountLoot(BagInventory bag, out int count, out int value)
+        {
+            count = 0;
+            value = 0;
+
+            IReadOnlyList<PlacedItem> items = bag.Items;
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDefinition definition = _catalog.Get(items[i].DefinitionId);
+                if (definition == null)
+                {
+                    continue;
+                }
+
+                if (definition.Category == ItemCategory.Loot)
+                {
+                    count += 1;
+                    value += definition.Value;
+                }
+            }
+        }
+
+        private static bool Contains(RectTransform rect, Vector2 screen)
+        {
+            return rect != null && RectTransformUtility.RectangleContainsScreenPoint(rect, screen, null);
+        }
+
+        /// <summary>
+        /// 点卡片切目标。搜刮阶段点的是"还有东西的尸体"，战斗回合点的是活着的——
+        /// 两条规则不同，所以判断放在这里，而不是各调用点抄一遍。
+        /// </summary>
+        private bool SelectCardAt(Vector2 screen)
+        {
+            for (int i = 0; i < _enemyCards.Count; i++)
+            {
+                bool selectable = _lootPhase
+                    ? _enemies[i].Bag.Items.Count > 0
+                    : (_enemies[i].IsAlive && !_enemies[i].HasFled);
+
+                if (selectable && Contains(_enemyCards[i], screen))
+                {
+                    _selectedEnemy = i;
+                    RefreshAll();
+                    return true;
                 }
             }
 
-            return CurrentTarget();
-        }
-
-        /// <summary>C 舞台：焦点敌人的全部数字。选中谁看谁。</summary>
-        private void UpdateFocusStage()
-        {
-            CombatActor target = FocusActor();
-
-            if (target == null)
-            {
-                _focusName.text = "无目标";
-                _focusTag.text = string.Empty;
-                _focusHp.text = string.Empty;
-                _focusMeta.text = string.Empty;
-                _focusHpFill.fillAmount = 0f;
-                _focusArmor.text = string.Empty;
-                _focusReduction.text = string.Empty;
-                _focusIntent.text = "场上已经没有可交战的目标。";
-                return;
-            }
-
-            bool focused = _selectedEnemy >= 0 && _selectedEnemy < _enemies.Count && _enemies[_selectedEnemy] == target;
-            _focusName.text = target.DisplayName;
-            _focusTag.text = !target.IsAlive ? "已倒下" : (focused ? "当前目标" : "自动选中");
-            _focusTag.color = target.IsAlive ? (focused ? LootColor : MutedColor) : DangerColor;
-
-            _focusHp.text = "生命 " + target.Hp + "/" + target.MaxHp;
-            float ratio = target.MaxHp > 0 ? Mathf.Clamp01((float)target.Hp / target.MaxHp) : 0f;
-            _focusHpFill.fillAmount = ratio;
-
-            _focusMeta.text = "能量 " + target.Energy + "/" + MaxEnergy(target) + "   护盾 " + target.Shield;
-            _focusArmor.text = ArmorLine(target);
-            _focusReduction.text = ReductionLine(target);
-            _focusIntent.text = target.IsAlive ? IntentFor(target) + StatusSuffix(target) : "已倒下，可以搜刮。";
-        }
-
-        /// <summary>F2：目标背包 + 搜刮进度。</summary>
-        private void UpdateTargetDock()
-        {
-            CombatActor target = _lootPhase ? FocusActor() : CurrentTarget();
-            int left = target != null ? target.Bag.Items.Count : 0;
-
-            _targetSubtitle.text = _lootPhase
-                ? "已取 " + _takenValue + " · 剩余 " + left + " 件 · 空位 " + _player.Bag.FreeCellCount
-                : (target != null ? target.DisplayName + " · " + left + " 件 · 双击可展开" : "无目标");
+            return false;
         }
 
         /// <summary>
@@ -957,8 +1044,8 @@ namespace BitRunner.Game
         }
 
         /// <summary>
-        /// B 区次要按钮。战斗回合里是「撤离」，搜刮阶段变成「搜刮全部」——
-        /// 两者不会同时需要，所以共用一个矩形，位置恒定。
+        /// B 区次要按钮：只有「撤离」，玩家回合才出现。
+        /// 「搜刮全部」搬去了 F2 的战利品板——它是收尾动作，属于那一场的账，不属于命令行。
         /// </summary>
         private void UpdateSecondaryButton()
         {
@@ -967,23 +1054,15 @@ namespace BitRunner.Game
                 return;
             }
 
-            bool loot = _lootPhase;
-            bool canRetreat = !_lootPhase && !_ended && _engine.Phase == CombatPhase.PlayerTurn;
-            bool show = loot || canRetreat;
-
+            bool show = !_lootPhase && !_ended && _engine.Phase == CombatPhase.PlayerTurn;
             if (_secondaryRect.gameObject.activeSelf != show)
             {
                 _secondaryRect.gameObject.SetActive(show);
             }
 
-            if (!show)
-            {
-                return;
-            }
-
-            _secondaryImage.color = loot ? AccentColor : RetreatColor;
-            _secondaryText.text = loot ? "搜刮全部" : "撤离";
-            _secondaryText.color = loot ? TextColor : MutedColor;
+            _secondaryImage.color = RetreatColor;
+            _secondaryText.text = "撤离";
+            _secondaryText.color = MutedColor;
         }
 
         private void CheckEnd()
@@ -1077,13 +1156,12 @@ namespace BitRunner.Game
                 }
             }
 
-            SetMessage("拖战利品到左边背包或右边保险箱；双击容器可打开独立窗口。");
+            SetMessage("打赢了。把战利品拖进背包或保险箱，或者点「搜刮全部」。");
             UpdateShell();
             UpdateSecondaryButton();
             UpdateEndTurnButton();
-            UpdateEnemyHud();
-            UpdateFocusStage();
-            UpdateTargetDock();
+            UpdateEnemyCards();
+            UpdateLootBoard();
         }
 
         private void LootAll()
@@ -1095,7 +1173,8 @@ namespace BitRunner.Game
 
             _lootInteraction.TakeAll();
             _shell.RefreshContainers();
-            UpdateTargetDock();
+            UpdateEnemyCards();
+            UpdateLootBoard();
             UpdateEndTurnButton();
         }
 
@@ -1190,7 +1269,7 @@ namespace BitRunner.Game
             _takenValue += value;
             SetMessage("获得 " + displayName + "（+" + value + "）");
             _shell.RefreshContainers();
-            UpdateTargetDock();
+            UpdateLootBoard();
         }
 
         private void FinishLoot()
@@ -1258,6 +1337,12 @@ namespace BitRunner.Game
         /// </summary>
         private void TearDown()
         {
+            // 账本是外壳的，战斗只是临时借走它那块位置——离场必须还回去。
+            if (_shell != null)
+            {
+                _shell.SetLedgerVisible(true);
+            }
+
             if (_playerInteraction != null)
             {
                 Destroy(_playerInteraction);
@@ -1279,6 +1364,20 @@ namespace BitRunner.Game
             if (_containerWindows != null)
             {
                 _containerWindows.CloseAll();
+            }
+
+            // 战场带和播报行直接挂在 ScreenLayer 上（它们跨 A/C/D 三个区，不属于任何一个洞），
+            // 所以 PopScreen 不会替我们销毁，必须自己收。
+            if (_band != null)
+            {
+                Destroy(_band.gameObject);
+                _band = null;
+            }
+
+            if (_messageText != null)
+            {
+                Destroy(_messageText.gameObject);
+                _messageText = null;
             }
 
             if (_tooltipPanel != null)
@@ -1481,8 +1580,8 @@ namespace BitRunner.Game
         }
 
         /// <summary>
-        /// 动画落点。玩家没有独立面板了（数字都在外壳左栏），所以闪光落在左栏整块上；
-        /// 敌人落在 D 侧栏对应那一行，而不是 C 舞台——因为"被打了"这件事要在一排敌人里看见。
+        /// 动画落点。玩家没有独立面板（数字都在外壳左栏），闪光落在左栏整块上；
+        /// 敌人落在它自己那张卡上——卡有 300×168，闪光看得见，也是"这只挨打了"最直接的表达。
         /// </summary>
         private RectTransform PanelRectFor(CombatActor actor)
         {
@@ -1497,7 +1596,7 @@ namespace BitRunner.Game
             }
 
             int index = _enemies.IndexOf(actor);
-            return index >= 0 && index < _enemyRows.Count ? _enemyRows[index] : null;
+            return index >= 0 && index < _enemyCards.Count ? _enemyCards[index] : null;
         }
 
         private Image PanelImageFor(CombatActor actor)
@@ -1515,7 +1614,7 @@ namespace BitRunner.Game
             }
 
             int index = _enemies.IndexOf(actor);
-            return index >= 0 && index < _enemyRowImages.Count ? _enemyRowImages[index] : null;
+            return index >= 0 && index < _enemyCardImages.Count ? _enemyCardImages[index] : null;
         }
 
         private bool StartAnimations(List<UseAnimationStep> steps)
@@ -1540,6 +1639,24 @@ namespace BitRunner.Game
             return true;
         }
 
+        /// <summary>
+        /// 记住"这次要点的是哪个格子"。必须在 <see cref="CombatEngine.TryUseItem"/> 之前调用：
+        /// 消耗品用掉后会从背包移除，动画开始时已经找不到 ItemView 了。
+        /// </summary>
+        private void SnapshotUsedItem(int instanceId)
+        {
+            _usedItemInstance = instanceId;
+            _usedItemRect = null;
+            _usedItemSprite = null;
+
+            ItemView view;
+            if (_playerView != null && _playerView.TryGetItemView(instanceId, out view))
+            {
+                _usedItemRect = view.transform as RectTransform;
+                _usedItemSprite = view.Image != null ? view.Image.sprite : null;
+            }
+        }
+
         private void BeginAnimationStep(int index)
         {
             UseAnimationStep step = _animSteps[index];
@@ -1548,16 +1665,25 @@ namespace BitRunner.Game
             _animTargetImage = PanelImageFor(step.Target);
             _animTargetBaseColor = _animTargetImage != null ? _animTargetImage.color : Color.white;
 
+            Sprite sprite = null;
             ItemView view;
             if (step.Source != null && step.Source.View != null
                 && step.Source.View.TryGetItemView(step.InstanceId, out view))
             {
                 _animItemRect = view.transform as RectTransform;
-                if (_animItemRect != null)
-                {
-                    _fxPulse.sprite = view.Image.sprite != null ? view.Image.sprite : SpriteFactory.White;
-                    _fxPulse.rectTransform.sizeDelta = _animItemRect.rect.size + new Vector2(3f, 3f);
-                }
+                sprite = view.Image != null ? view.Image.sprite : null;
+            }
+            else if (step.InstanceId == _usedItemInstance)
+            {
+                // 消耗品已经消失了，用点击瞬间的快照——否则这一步只剩目标闪光，看着像没做动画。
+                _animItemRect = _usedItemRect;
+                sprite = _usedItemSprite;
+            }
+
+            if (_animItemRect != null)
+            {
+                _fxPulse.sprite = sprite != null ? sprite : SpriteFactory.White;
+                _fxPulse.rectTransform.sizeDelta = _animItemRect.rect.size + new Vector2(3f, 3f);
             }
 
             _fxPulse.gameObject.SetActive(false);
@@ -1620,7 +1746,7 @@ namespace BitRunner.Game
             if (_animTargetImage != null && t >= AnimFlashStart && t <= AnimFlashStart + AnimFlashSeconds)
             {
                 float p = Mathf.Clamp01((t - AnimFlashStart) / AnimFlashSeconds);
-                _animTargetImage.color = Color.Lerp(_animTargetBaseColor, FlashColor, Mathf.Sin(Mathf.PI * p) * 0.9f);
+                _animTargetImage.color = Color.Lerp(_animTargetBaseColor, FlashColor, Mathf.Sin(Mathf.PI * p) * AnimFlashStrength);
             }
             else if (_animTargetImage != null)
             {
@@ -1738,12 +1864,6 @@ namespace BitRunner.Game
         private string IntentFor(CombatActor enemy)
         {
             return "意图：" + IntentWord(enemy);
-        }
-
-        /// <summary>D 侧栏一行的意图简写。去掉"意图："前缀，省下来的宽度留给血条。</summary>
-        private string ShortIntent(CombatActor enemy)
-        {
-            return IntentWord(enemy);
         }
 
         private string IntentWord(CombatActor enemy)

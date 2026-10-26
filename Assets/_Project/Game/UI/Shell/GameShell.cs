@@ -644,6 +644,19 @@ namespace BitRunner.Game
             }
         }
 
+        /// <summary>
+        /// A 区账本的显隐。战斗时关掉——不是"战斗看不到债务"，而是那块位置要放敌人卡
+        /// （DESIGN.md §4.3 要求敌人背包并排可比，见 ShellRegions.Battlefield）。
+        /// 出战斗必须置回 true，否则回到探索会缺一块。
+        /// </summary>
+        public void SetLedgerVisible(bool visible)
+        {
+            if (HudRect != null && HudRect.gameObject.activeSelf != visible)
+            {
+                HudRect.gameObject.SetActive(visible);
+            }
+        }
+
         /// <summary>写 A 区账本（周·天 / 应缴·已缴 / bit / 债务条）。三种模式共用。</summary>
         public void SetLedger(CampaignState campaign)
         {
