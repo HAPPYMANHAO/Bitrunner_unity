@@ -5,6 +5,9 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using static BitRunner.Game.UiFactory;
+using static BitRunner.Game.UiPalette;
+using static BitRunner.Game.UiTheme;
 
 namespace BitRunner.Game
 {
@@ -19,16 +22,6 @@ namespace BitRunner.Game
         }
 
 
-        private static readonly Color BackgroundColor = new Color32(18, 21, 26, 255);
-        private static readonly Color PanelColor = new Color32(27, 31, 38, 255);
-        private static readonly Color PanelSelectedColor = new Color32(42, 51, 64, 255);
-        private static readonly Color TextColor = new Color32(224, 230, 240, 255);
-        private static readonly Color MutedColor = new Color32(138, 146, 162, 255);
-        private static readonly Color AccentColor = new Color32(58, 110, 165, 255);
-        private static readonly Color DisabledColor = new Color32(44, 48, 56, 255);
-        private static readonly Color HpColor = new Color32(111, 191, 115, 255);
-        private static readonly Color EnemyHpColor = new Color32(200, 96, 96, 255);
-        private static readonly Color RetreatColor = new Color32(122, 74, 44, 255);
 
         private ItemCatalog _catalog;
         private CombatEngine _engine;
@@ -102,7 +95,6 @@ namespace BitRunner.Game
         private const float AnimFlashStart = 0.16f;
         private const float AnimFlashSeconds = 0.16f;
         private const float AnimStepSeconds = 0.34f;
-        private static readonly Color FlashColor = new Color32(255, 236, 184, 255);
 
         private readonly List<UseAnimationStep> _animSteps = new List<UseAnimationStep>();
         private bool _animating;
@@ -1521,162 +1513,6 @@ namespace BitRunner.Game
 
             cell = new Cell(x, y);
             return x >= 0 && x < bag.Grid.Width && y >= 0 && y < bag.Grid.Height;
-        }
-
-        private static RectTransform CreateBagRect(Transform parent, Vector2 center, Vector2 size)
-        {
-            var go = new GameObject("Bag", typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = center;
-            rect.sizeDelta = size;
-            return rect;
-        }
-
-        private static RectTransform CreateCenteredPanel(Transform parent, string name, Vector2 center, Vector2 size, Color color)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = center;
-            rect.sizeDelta = size;
-            go.GetComponent<Image>().color = color;
-            return rect;
-        }
-
-        private static Image CreateBar(Transform parent, string name, Vector2 topLeft, Vector2 size, Color fillColor)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = topLeft;
-            rect.sizeDelta = size;
-            go.GetComponent<Image>().color = new Color32(12, 14, 18, 255);
-            go.GetComponent<Image>().raycastTarget = false;
-
-            var fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
-            fillGo.transform.SetParent(go.transform, false);
-
-            var fillRect = (RectTransform)fillGo.transform;
-            fillRect.anchorMin = Vector2.zero;
-            fillRect.anchorMax = Vector2.one;
-            fillRect.offsetMin = Vector2.zero;
-            fillRect.offsetMax = Vector2.zero;
-
-            var fill = fillGo.GetComponent<Image>();
-            fill.sprite = SpriteFactory.White;
-            fill.color = fillColor;
-            fill.type = Image.Type.Filled;
-            fill.fillMethod = Image.FillMethod.Horizontal;
-            fill.fillOrigin = 0;
-            fill.fillAmount = 1f;
-            fill.raycastTarget = false;
-            return fill;
-        }
-
-        private static Text CreateText(Transform parent, string name, string content, int size, Color color, Vector2 position, Vector2 sizeDelta, TextAnchor alignment)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Text));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = position;
-            rect.sizeDelta = sizeDelta;
-
-            var text = go.GetComponent<Text>();
-            text.font = GetFont();
-            text.fontSize = size;
-            text.color = color;
-            text.text = content;
-            text.alignment = alignment;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            text.raycastTarget = false;
-            return text;
-        }
-
-        private static Text CreateCenteredText(Transform parent, string name, string content, int size, Color color, Vector2 position, Vector2 sizeDelta)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Text));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = position;
-            rect.sizeDelta = sizeDelta;
-
-            var text = go.GetComponent<Text>();
-            text.font = GetFont();
-            text.fontSize = size;
-            text.color = color;
-            text.text = content;
-            text.alignment = TextAnchor.MiddleCenter;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            text.raycastTarget = false;
-            return text;
-        }
-
-        private static Font GetFont()
-        {
-            return GameFonts.Ui;
-        }
-
-        private static Dictionary<string, Color> BuildPalette(ItemCatalog catalog)
-        {
-            var palette = new Dictionary<string, Color>();
-            foreach (ItemDefinition definition in catalog.Definitions)
-            {
-                palette[definition.Id] = ColorFor(definition.Category);
-            }
-
-            return palette;
-        }
-
-        private static Color ColorFor(ItemCategory category)
-        {
-            switch (category)
-            {
-                case ItemCategory.Weapon:
-                    return new Color32(232, 110, 64, 255);
-                case ItemCategory.Armor:
-                    return new Color32(80, 140, 220, 255);
-                case ItemCategory.Tool:
-                    return new Color32(79, 184, 200, 255);
-                case ItemCategory.Consumable:
-                    return new Color32(90, 200, 130, 255);
-                case ItemCategory.Loot:
-                    return new Color32(220, 200, 70, 255);
-                case ItemCategory.Material:
-                    return new Color32(150, 128, 100, 255);
-                case ItemCategory.Key:
-                    return new Color32(190, 120, 235, 255);
-                case ItemCategory.Currency:
-                    return new Color32(230, 196, 70, 255);
-                case ItemCategory.Ammo:
-                    return new Color32(200, 170, 120, 255);
-                case ItemCategory.Container:
-                    return new Color32(150, 118, 82, 255);
-                default:
-                    return new Color32(140, 150, 160, 255);
-            }
         }
     }
 }

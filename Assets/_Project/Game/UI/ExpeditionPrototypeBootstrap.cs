@@ -5,29 +5,14 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using static BitRunner.Game.UiFactory;
+using static BitRunner.Game.UiPalette;
+using static BitRunner.Game.UiTheme;
 
 namespace BitRunner.Game
 {
     public sealed class ExpeditionPrototypeBootstrap : MonoBehaviour
     {
-        private static readonly Color BackgroundColor = new Color32(18, 21, 26, 255);
-        private static readonly Color PanelColor = new Color32(27, 31, 38, 255);
-        private static readonly Color SlotColor = new Color32(16, 19, 24, 255);
-        private static readonly Color SlotHoverColor = new Color32(34, 40, 49, 255);
-        private static readonly Color SelectedColor = new Color32(74, 60, 32, 255);
-        private static readonly Color DisabledColor = new Color32(23, 26, 31, 255);
-        private static readonly Color TextColor = new Color32(224, 230, 240, 255);
-        private static readonly Color MutedColor = new Color32(138, 146, 162, 255);
-        private static readonly Color LogColor = new Color32(123, 196, 127, 255);
-        private static readonly Color SystemColor = new Color32(127, 199, 217, 255);
-        private static readonly Color DangerColor = new Color32(226, 107, 91, 255);
-        private static readonly Color WarningColor = new Color32(226, 190, 90, 255);
-        private static readonly Color LootColor = new Color32(220, 200, 70, 255);
-        private static readonly Color HpColor = new Color32(214, 92, 82, 255);
-        private static readonly Color BagColor = new Color32(91, 160, 210, 255);
-        private static readonly Color AlertColor = new Color32(224, 164, 79, 255);
-        private static readonly Color ConfirmColor = new Color32(58, 74, 70, 255);
-        private static readonly Color ConfirmReadyColor = new Color32(94, 132, 103, 255);
 
         private ExpeditionScenario _scenario;
         private ItemCatalog _catalog;
@@ -1953,70 +1938,6 @@ namespace BitRunner.Game
             return canvas;
         }
 
-        private static RectTransform CreateCenteredPanel(Transform parent, string name, Vector2 center, Vector2 size, Color color)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = center;
-            rect.sizeDelta = size;
-            go.GetComponent<Image>().color = color;
-            return rect;
-        }
-
-        private static RectTransform CreateBagRect(Transform parent, Vector2 center, Vector2 size)
-        {
-            var go = new GameObject("Bag", typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = center;
-            rect.sizeDelta = size;
-            return rect;
-        }
-
-        private static Text CreateText(Transform parent, string name, string content, int size, Color color, Vector2 topLeft, Vector2 box, TextAnchor anchor)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Text));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = topLeft;
-            rect.sizeDelta = box;
-
-            var text = go.GetComponent<Text>();
-            text.text = content;
-            text.font = GameFonts.Ui;
-            text.fontSize = size;
-            text.color = color;
-            text.alignment = anchor;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            text.raycastTarget = false;
-            return text;
-        }
-
-        private static Text CreateCenteredText(Transform parent, string name, string content, int size, Color color, Vector2 center, Vector2 box)
-        {
-            Text text = CreateText(parent, name, content, size, color, Vector2.zero, box, TextAnchor.MiddleCenter);
-            var rect = (RectTransform)text.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = center;
-            return text;
-        }
-
         private static Dictionary<string, Color> BuildActionPalette(ItemCatalog catalog)
         {
             var palette = new Dictionary<string, Color>();
@@ -2075,46 +1996,6 @@ namespace BitRunner.Game
                     return new Color32(112, 92, 150, 255);
                 default:
                     return new Color32(78, 118, 88, 255);
-            }
-        }
-
-        private static Dictionary<string, Color> BuildPalette(ItemCatalog catalog)
-        {
-            var palette = new Dictionary<string, Color>();
-            foreach (ItemDefinition definition in catalog.Definitions)
-            {
-                palette[definition.Id] = ColorFor(definition.Category);
-            }
-
-            return palette;
-        }
-
-        private static Color ColorFor(ItemCategory category)
-        {
-            switch (category)
-            {
-                case ItemCategory.Weapon:
-                    return new Color32(232, 110, 64, 255);
-                case ItemCategory.Armor:
-                    return new Color32(80, 140, 220, 255);
-                case ItemCategory.Tool:
-                    return new Color32(79, 184, 200, 255);
-                case ItemCategory.Consumable:
-                    return new Color32(90, 200, 130, 255);
-                case ItemCategory.Loot:
-                    return new Color32(220, 200, 70, 255);
-                case ItemCategory.Material:
-                    return new Color32(150, 128, 100, 255);
-                case ItemCategory.Key:
-                    return new Color32(190, 120, 235, 255);
-                case ItemCategory.Currency:
-                    return new Color32(230, 196, 70, 255);
-                case ItemCategory.Ammo:
-                    return new Color32(200, 170, 120, 255);
-                case ItemCategory.Container:
-                    return new Color32(150, 118, 82, 255);
-                default:
-                    return new Color32(155, 155, 160, 255);
             }
         }
 

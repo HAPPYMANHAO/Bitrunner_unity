@@ -5,23 +5,14 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using static BitRunner.Game.UiFactory;
+using static BitRunner.Game.UiPalette;
+using static BitRunner.Game.UiTheme;
 
 namespace BitRunner.Game
 {
     public sealed class BasePrototypeBootstrap : MonoBehaviour
     {
-        private static readonly Color BackgroundColor = new Color32(18, 21, 26, 255);
-        private static readonly Color PanelColor = new Color32(27, 31, 38, 255);
-        private static readonly Color SellColor = new Color32(58, 46, 34, 255);
-        private static readonly Color TextColor = new Color32(224, 230, 240, 255);
-        private static readonly Color MutedColor = new Color32(138, 146, 162, 255);
-        private static readonly Color WarningColor = new Color32(208, 128, 80, 255);
-        private static readonly Color AccentColor = new Color32(58, 110, 165, 255);
-        private static readonly Color DisabledColor = new Color32(44, 48, 56, 255);
-        private static readonly Color BenchColor = new Color32(22, 26, 32, 255);
-        private static readonly Color BenchRailColor = new Color32(63, 54, 43, 255);
-        private static readonly Color WindowColor = new Color32(16, 20, 26, 255);
-        private static readonly Color WindowScreenColor = new Color32(23, 29, 36, 255);
 
         private enum BaseTab
         {
@@ -2051,187 +2042,6 @@ namespace BitRunner.Game
             BackgroundArt.Apply(background);
 
             return canvas;
-        }
-
-        private static void AddBorder(RectTransform rect, Color color)
-        {
-            var outline = rect.gameObject.AddComponent<Outline>();
-            outline.effectColor = color;
-            outline.effectDistance = new Vector2(1f, -1f);
-            outline.useGraphicAlpha = false;
-        }
-
-        private static RectTransform CreateAnchoredRect(Transform parent, string name, Vector2 topLeft, Vector2 size)
-        {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = topLeft;
-            rect.sizeDelta = size;
-            return rect;
-        }
-
-        private static RectTransform CreateButton(Transform parent, string name, string label, Vector2 topLeft, Vector2 size, Color color)
-        {
-            RectTransform rect = CreateAnchoredPanel(parent, name, topLeft, size, color);
-            CreateCenteredText(rect, "Label", label, 9, TextColor, Vector2.zero, new Vector2(size.x - 4f, size.y - 2f));
-            return rect;
-        }
-
-        private static RectTransform CreateBagRect(Transform parent, Vector2 center)
-        {
-            return CreateBagRect(parent, center, new Vector2(192f, 160f));
-        }
-
-        private static RectTransform CreateBagRect(Transform parent, Vector2 center, Vector2 size)
-        {
-            var go = new GameObject("Bag", typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = center;
-            rect.sizeDelta = size;
-            return rect;
-        }
-
-        private static RectTransform CreateCenteredPanel(Transform parent, string name, Vector2 center, Vector2 size, Color color)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = center;
-            rect.sizeDelta = size;
-            go.GetComponent<Image>().color = color;
-            return rect;
-        }
-
-        private static RectTransform CreateAnchoredPanel(Transform parent, string name, Vector2 topLeft, Vector2 size, Color color)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = topLeft;
-            rect.sizeDelta = size;
-            go.GetComponent<Image>().color = color;
-            return rect;
-        }
-
-        private static Text CreateText(Transform parent, string name, string content, int size, Color color, Vector2 position, Vector2 sizeDelta, TextAnchor alignment)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Text));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = position;
-            rect.sizeDelta = sizeDelta;
-
-            var text = go.GetComponent<Text>();
-            text.font = GetFont();
-            text.fontSize = size;
-            text.color = color;
-            text.text = content;
-            text.alignment = alignment;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            text.raycastTarget = false;
-            return text;
-        }
-
-        private static Text CreateCenteredText(Transform parent, string name, string content, int size, Color color, Vector2 position, Vector2 sizeDelta)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Text));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = position;
-            rect.sizeDelta = sizeDelta;
-
-            var text = go.GetComponent<Text>();
-            text.font = GetFont();
-            text.fontSize = size;
-            text.color = color;
-            text.text = content;
-            text.alignment = TextAnchor.MiddleCenter;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            text.raycastTarget = false;
-            return text;
-        }
-
-        private static Font GetFont()
-        {
-            return GameFonts.Ui;
-        }
-
-        private static Dictionary<string, Color> BuildPalette(ItemCatalog catalog)
-        {
-            var palette = new Dictionary<string, Color>();
-            foreach (ItemDefinition definition in catalog.Definitions)
-            {
-                palette[definition.Id] = ColorFor(definition.Category);
-            }
-
-            return palette;
-        }
-
-        private static Color ColorFor(ItemCategory category)
-        {
-            switch (category)
-            {
-                case ItemCategory.Weapon:
-                    return new Color32(232, 110, 64, 255);
-                case ItemCategory.Armor:
-                    return new Color32(80, 140, 220, 255);
-                case ItemCategory.Tool:
-                    return new Color32(79, 184, 200, 255);
-                case ItemCategory.Consumable:
-                    return new Color32(90, 200, 130, 255);
-                case ItemCategory.Loot:
-                    return new Color32(220, 200, 70, 255);
-                case ItemCategory.Material:
-                    return new Color32(150, 128, 100, 255);
-                case ItemCategory.Key:
-                    return new Color32(190, 120, 235, 255);
-                case ItemCategory.Currency:
-                    return new Color32(230, 196, 70, 255);
-                case ItemCategory.Ammo:
-                    return new Color32(200, 170, 120, 255);
-                case ItemCategory.Container:
-                    return new Color32(150, 118, 82, 255);
-
-                // 契约用近白的羊皮纸色：它既不是战利品也不是材料，
-                // 一眼要在柜台/背包里被认出来。
-                case ItemCategory.Quest:
-                    return new Color32(226, 214, 186, 255);
-
-                // 上行链路刻意不用 Key 的紫色：它们是两种完全不同的东西，
-                // 同色会让人以为「通讯链路能开潜网舱」。
-                case ItemCategory.Uplink:
-                    return new Color32(226, 118, 164, 255);
-                default:
-                    return new Color32(140, 150, 160, 255);
-            }
         }
     }
 }
