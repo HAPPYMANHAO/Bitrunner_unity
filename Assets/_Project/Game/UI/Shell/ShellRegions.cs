@@ -79,6 +79,15 @@ namespace BitRunner.Game
         /// <summary>战斗播报行：A 账本让出来的那一条。原来这句话写在 C 舞台底部。</summary>
         public static readonly Rect MessageLine = new Rect(10f, 12f, 440f, 20f);
 
+        /// <summary>
+        /// 左侧空洞 (0,76,185,150) 里的搜刮面板位。探索搜刮时用，平时留白。
+        ///
+        /// 搜刮不再是全屏弹窗：那块遮罩把整屏压黑，物品提示又被压在遮罩下面，
+        /// 于是"在窗口里悬停什么都看不到"。改成坐在左边这块本来空着的地方，
+        /// 背包（F1）和保险箱（F3）一直露在外面，拖过去就行。
+        /// </summary>
+        public static readonly Rect LootDock = new Rect(4f, 78f, 176f, 146f);
+
         // ---- 已知空洞，本版不动 ----
         // 左中 (0,76,185,150)：基地现在就是留白，填上就不是"零改动"了。
         // 留作后续：本周日程 / 债务预警板 / 联系人列表。

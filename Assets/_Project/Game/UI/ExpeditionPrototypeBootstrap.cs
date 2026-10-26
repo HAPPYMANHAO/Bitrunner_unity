@@ -102,18 +102,16 @@ namespace BitRunner.Game
         private BaseDragInteraction _bagDrag;
         private bool _bagOpen;
 
-        private GameObject _lootOverlay;
+        private GameObject _lootPanel;
+        private RectTransform _lootPanelRect;
         private RectTransform _lootCloseRect;
+        private RectTransform _lootAllRect;
         private RectTransform _lootDiscardRect;
-        private RectTransform _lootBoxPanel;
         private RectTransform _lootBoxRect;
         private BagView _lootBoxView;
-        private RectTransform _lootPlayerRect;
-        private BagView _lootPlayerView;
-        private RectTransform _lootSecureRect;
-        private BagView _lootSecureView;
+        private Text _lootTitle;
         private Text _lootHint;
-        private Text _lootItemInfo;
+        private Text _lootAllText;
         private BaseDragInteraction _lootDrag;
         private FloatingWindowManager _containerWindows;
         private BagInventory _lootBag;
@@ -207,7 +205,7 @@ namespace BitRunner.Game
             BuildActionDrag();
             RebuildMainHoverSources();
             BuildBagOverlay(_shell.OverlayLayer);
-            BuildLootOverlay(_shell.OverlayLayer);
+            BuildLootPanel();
             BuildItemTooltip(_shell.TooltipLayer);
             BuildContainerWindows();
 
@@ -244,14 +242,29 @@ namespace BitRunner.Game
 
             if (_lootOpen)
             {
-                if (mouse != null && mouse.leftButton.wasPressedThisFrame
-                    && RectTransformUtility.RectangleContainsScreenPoint(_lootCloseRect, screen, null))
+                // 搜刮面板不是遮罩：背包（F1）和保险箱（F3）一直露在外面可以直接拖进去，
+                // 所以这里只处理面板自己的两颗按钮和 Esc，别的一概不碰。
+                if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
                 {
                     CloseLoot();
                     return;
                 }
 
-                UpdateLootHover(screen);
+                if (mouse != null && mouse.leftButton.wasPressedThisFrame)
+                {
+                    if (Contains(_lootCloseRect, screen))
+                    {
+                        CloseLoot();
+                        return;
+                    }
+
+                    if (Contains(_lootAllRect, screen))
+                    {
+                        TakeAllLoot();
+                        return;
+                    }
+                }
+
                 return;
             }
 
@@ -511,11 +524,16 @@ namespace BitRunner.Game
                 _bagOverlay = null;
             }
 
-            if (_lootOverlay != null)
+            if (_lootPanel != null)
             {
-                Destroy(_lootOverlay);
-                _lootOverlay = null;
+                Destroy(_lootPanel);
+                _lootPanel = null;
+                _lootPanelRect = null;
+                _lootBoxRect = null;
+                _lootBoxView = null;
             }
+
+            _lootOpen = false;
 
             if (_itemTooltipPanel != null)
             {
@@ -552,16 +570,6 @@ namespace BitRunner.Game
             if (_secureView != null)
             {
                 _secureView.Refresh();
-            }
-
-            if (_lootPlayerView != null)
-            {
-                _lootPlayerView.Refresh();
-            }
-
-            if (_lootSecureView != null)
-            {
-                _lootSecureView.Refresh();
             }
 
             if (_bagSecureTitle != null)
@@ -1555,45 +1563,52 @@ namespace BitRunner.Game
             _bagOverlay.SetActive(false);
         }
 
-        private void BuildLootOverlay(Transform canvas)
+        private void BuildLootPanel()
         {
-            _lootOverlay = new GameObject("LootOverlay", typeof(RectTransform), typeof(Image));
-            _lootOverlay.transform.SetParent(canvas, false);
-            var root = (RectTransform)_lootOverlay.transform;
-            root.anchorMin = Vector2.zero;
-            root.anchorMax = Vector2.one;
-            root.offsetMin = Vector2.zero;
-            root.offsetMax = Vector2.zero;
-            _lootOverlay.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.86f);
-            _lootOverlay.GetComponent<Image>().raycastTarget = true;
+            Rect dock = ShellRegions.LootDock;
 
-            RectTransform box = CreateCenteredPanel(_lootOverlay.transform, "Box", Vector2.zero, new Vector2(600f, 300f), PanelColor);
-            CreateCenteredText(box, "Title", "发现物资", 14, TextColor, new Vector2(0f, 126f), new Vector2(560f, 20f));
-            _lootHint = CreateCenteredText(box, "Hint", string.Empty, 8, MutedColor, new Vector2(0f, 112f), new Vector2(500f, 12f));
-            _lootItemInfo = CreateCenteredText(box, "ItemInfo", string.Empty, 8, TextColor, new Vector2(-80f, -128f), new Vector2(420f, 12f));
+            // 挂在 ScreenLayer 上：LootDock 这块位置不属于任何一个 Screen 洞（它在 C 舞台左边），
+            // 所以和战斗的播报行一样自己建、自己在 TearDown 里收。
+            _lootPanel = new GameObject("LootPanel", typeof(RectTransform), typeof(Image));
+            _lootPanel.transform.SetParent(_shell.ScreenLayer, false);
 
-            _lootBoxPanel = CreateCenteredPanel(box, "LootBox", new Vector2(-205f, -10f), new Vector2(150f, 150f), new Color32(20, 24, 30, 255));
-            CreateText(_lootBoxPanel, "Title", "容器", 9, TextColor, new Vector2(8f, -6f), new Vector2(134f, 12f), TextAnchor.UpperLeft);
+            _lootPanelRect = (RectTransform)_lootPanel.transform;
+            _lootPanelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            _lootPanelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            _lootPanelRect.pivot = new Vector2(0.5f, 0.5f);
+            _lootPanelRect.anchoredPosition = ShellRegions.CenterOf(dock);
+            _lootPanelRect.sizeDelta = ShellRegions.SizeOf(dock);
+            _lootPanel.GetComponent<Image>().color = new Color32(26, 31, 39, 255);
+            AddBorder(_lootPanelRect, new Color32(67, 59, 47, 255));
 
-            RectTransform playerPanel = CreateCenteredPanel(box, "PlayerBag", new Vector2(-20f, -10f), new Vector2(220f, 200f), new Color32(20, 24, 30, 255));
-            CreateText(playerPanel, "Title", "携带", 9, TextColor, new Vector2(8f, -6f), new Vector2(200f, 12f), TextAnchor.UpperLeft);
-            _lootPlayerRect = CreateBagRect(playerPanel, new Vector2(0f, -14f), new Vector2(6f * BagView.CellSize, 5f * BagView.CellSize));
-            _lootPlayerView = _lootPlayerRect.gameObject.AddComponent<BagView>();
-            _lootPlayerView.Initialize(_bag, _lootPlayerRect, _palette);
+            _lootTitle = CreateText(_lootPanelRect, "Title", "搜刮", FontPanelTitle, TextColor,
+                new Vector2(8f, -6f), new Vector2(160f, 12f), TextAnchor.UpperLeft);
 
-            RectTransform securePanel = CreateCenteredPanel(box, "SecureBag", new Vector2(165f, 24f), new Vector2(150f, 160f), new Color32(20, 24, 30, 255));
-            CreateText(securePanel, "Title", "保险箱", 9, TextColor, new Vector2(8f, -6f), new Vector2(134f, 12f), TextAnchor.UpperLeft);
-            _lootSecureRect = CreateBagRect(securePanel, new Vector2(0f, -16f), new Vector2(2f * BagView.CellSize, 2f * BagView.CellSize));
-            _lootSecureView = _lootSecureRect.gameObject.AddComponent<BagView>();
-            _lootSecureView.Initialize(_secure, _lootSecureRect, _palette);
+            _lootHint = CreateText(_lootPanelRect, "Hint", string.Empty, FontCaption, MutedColor,
+                new Vector2(8f, -20f), new Vector2(160f, 12f), TextAnchor.UpperLeft);
 
-            _lootDiscardRect = CreateCenteredPanel(box, "Discard", new Vector2(165f, -100f), new Vector2(120f, 24f), new Color32(58, 46, 34, 255));
-            CreateCenteredText(_lootDiscardRect, "Label", "丢弃区", 8, MutedColor, Vector2.zero, new Vector2(116f, 22f));
+            // 容器格子（4×3，与背包里的零件箱一致）在 OpenLoot 里按这一场的内容重建。
+            _lootDiscardRect = CreateCenteredPanel(
+                _lootPanelRect, "Discard",
+                ShellRegions.LocalIn(dock, 8f, 128f, 160f, 14f),
+                new Vector2(160f, 14f), new Color32(58, 46, 34, 255));
+            CreateCenteredText(_lootDiscardRect, "Label", "丢弃区", FontCaption, MutedColor, Vector2.zero, new Vector2(156f, 12f));
 
-            _lootCloseRect = CreateCenteredPanel(box, "Close", new Vector2(215f, -126f), new Vector2(90f, 24f), new Color32(44, 48, 56, 255));
-            CreateCenteredText(_lootCloseRect, "Label", "关闭", 9, TextColor, Vector2.zero, new Vector2(86f, 22f));
+            _lootAllRect = CreateCenteredPanel(
+                _lootPanelRect, "LootAll",
+                ShellRegions.LocalIn(dock, 8f, 102f, 84f, 20f),
+                new Vector2(84f, 20f), AccentColor);
+            AddBorder(_lootAllRect, new Color32(96, 142, 186, 255));
+            _lootAllText = CreateCenteredText(
+                _lootAllRect, "Label", "全部拿走", FontBody, TextColor, Vector2.zero, new Vector2(80f, 18f));
 
-            _lootOverlay.SetActive(false);
+            _lootCloseRect = CreateCenteredPanel(
+                _lootPanelRect, "Close",
+                ShellRegions.LocalIn(dock, 96f, 102f, 72f, 20f),
+                new Vector2(72f, 20f), new Color32(44, 48, 56, 255));
+            CreateCenteredText(_lootCloseRect, "Label", "关闭", FontBody, TextColor, Vector2.zero, new Vector2(68f, 18f));
+
+            _lootPanel.SetActive(false);
         }
 
         private void OpenBag()
@@ -1640,11 +1655,24 @@ namespace BitRunner.Game
             SetNarration("你收起背包，重新评估眼前的路线。");
         }
 
+        /// <summary>
+        /// 打开搜刮面板。**不再是全屏遮罩**：
+        ///
+        /// 遮罩把整屏压黑，而物品提示挂在 TooltipLayer、排在 OverlayLayer 下面，
+        /// 于是"在搜刮窗口里悬停什么都看不到"。现在面板坐在左边那块本来空着的位置
+        /// （<see cref="ShellRegions.LootDock"/>），F1 背包 / F3 保险箱原样露在外面，
+        /// 直接拖过去就行，提示照常弹。
+        /// </summary>
         private void OpenLoot(string[] lootIds)
         {
+            if (_lootOpen)
+            {
+                return;
+            }
+
             _lootOpen = true;
             SettingsOverlay.PushModal();
-            _lootOverlay.SetActive(true);
+            _lootPanel.SetActive(true);
             if (_actionDrag != null)
             {
                 _actionDrag.enabled = false;
@@ -1653,6 +1681,7 @@ namespace BitRunner.Game
             if (_lootBoxRect != null)
             {
                 Destroy(_lootBoxRect.gameObject);
+                _lootBoxRect = null;
             }
 
             _lootBag = new BagInventory(4, 3);
@@ -1674,28 +1703,37 @@ namespace BitRunner.Game
                 }
             }
 
-            _lootBoxRect = CreateBagRect(_lootBoxPanel, new Vector2(0f, -18f), new Vector2(4f * BagView.CellSize, 3f * BagView.CellSize));
+            _lootBoxRect = CreateBagRect(
+                _lootPanelRect,
+                ShellRegions.LocalIn(ShellRegions.LootDock, 8f, 34f, 4f * BagView.CellSize, 3f * BagView.CellSize),
+                new Vector2(4f * BagView.CellSize, 3f * BagView.CellSize));
             _lootBoxView = _lootBoxRect.gameObject.AddComponent<BagView>();
             _lootBoxView.Initialize(_lootBag, _lootBoxRect, _palette);
             _lootBoxView.Refresh();
-            _lootPlayerView.Refresh();
-            _lootSecureView.Refresh();
 
             if (_lootDrag != null)
             {
                 _lootDrag.enabled = false;
                 Destroy(_lootDrag);
+                _lootDrag = null;
             }
 
+            // 拖拽源直接指向外壳那两个常驻背包——拖进去的就是玩家看见的那一格。
             var sources = new List<BaseBagSource>
             {
-                new BaseBagSource { Name = "PACK", Bag = _bag, Rect = _lootPlayerRect, View = _lootPlayerView },
-                new BaseBagSource { Name = "SECURE", Bag = _secure, Rect = _lootSecureRect, View = _lootSecureView, IsSecure = true },
+                new BaseBagSource
+                {
+                    Name = "PACK", Bag = _bag, Rect = _shell.PackBagRect, View = _shell.PackView, AcceptsActionItems = false
+                },
+                new BaseBagSource
+                {
+                    Name = "SECURE", Bag = _secure, Rect = _shell.SecureBagRect, View = _shell.SecureView, IsSecure = true
+                },
                 new BaseBagSource { Name = "LOOT", Bag = _lootBag, Rect = _lootBoxRect, View = _lootBoxView, IsLoot = true }
             };
 
-            _lootDrag = _lootOverlay.AddComponent<BaseDragInteraction>();
-            _lootDrag.Initialize(sources, _catalog, GameSession.Merchant, GameSession.Campaign, _palette, _canvasRect, _sellBinRect, _lootDiscardRect);
+            _lootDrag = _lootPanel.AddComponent<BaseDragInteraction>();
+            _lootDrag.Initialize(sources, _catalog, GameSession.Merchant, GameSession.Campaign, _palette, _shell.DragLayer, _sellBinRect, _lootDiscardRect);
             _lootDrag.QuickMoveTarget = ExpeditionLootQuickTarget;
             _lootDrag.TryActivateItem = (source, instanceId) =>
                 _containerWindows != null && _containerWindows.TryOpen(source, instanceId);
@@ -1709,9 +1747,115 @@ namespace BitRunner.Game
             _lootDrag.ItemUsed += OnUseItem;
             _lootDrag.Message += SetNarration;
 
-            _lootHint.text = "拖动物资到背包或保险箱；关闭后剩余物资留在原地。";
-            _lootItemInfo.text = string.Empty;
             _lastPlayerItemCount = _bag.Count + _secure.Count;
+            RefreshLootPanel();
+        }
+
+        /// <summary>面板上的字跟着内容走：容器剩几件、背包还剩几格、按钮上的数量。</summary>
+        private void RefreshLootPanel()
+        {
+            if (!_lootOpen || _lootBag == null)
+            {
+                return;
+            }
+
+            int count = _lootBag.Count;
+            _lootTitle.text = "搜刮";
+            _lootHint.text = count > 0
+                ? "容器 " + count + " 件 · 背包空 " + _bag.FreeCellCount + " 格"
+                : "容器空了 · 背包空 " + _bag.FreeCellCount + " 格";
+            _lootAllText.text = count > 0 ? "全部拿走（" + count + "）" : "全部拿走";
+        }
+
+        /// <summary>一把抓走容器里所有还能装下的东西（先背包，装不下再试保险箱）。</summary>
+        private void TakeAllLoot()
+        {
+            if (_lootBag == null)
+            {
+                return;
+            }
+
+            int taken = 0;
+            int value = 0;
+            var snapshot = new List<PlacedItem>(_lootBag.Items);
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                PlacedItem current;
+                if (!_lootBag.TryGet(snapshot[i].InstanceId, out current))
+                {
+                    continue;
+                }
+
+                ItemDefinition definition;
+                if (!_catalog.TryGet(current.DefinitionId, out definition))
+                {
+                    continue;
+                }
+
+                if (!TryStoreLoot(current, definition))
+                {
+                    continue;
+                }
+
+                _lootBag.Remove(current.InstanceId);
+                GameSession.AddLootTaken();
+                taken++;
+                value += definition.Value;
+            }
+
+            _shell.RefreshContainers();
+            if (_lootBoxView != null)
+            {
+                _lootBoxView.Refresh();
+            }
+
+            if (taken == 0)
+            {
+                SetNarration("背包和保险箱都装不下了。");
+            }
+            else
+            {
+                string message = "拿走了 " + taken + " 件物资（估 ¥" + value + "）。";
+                AppendLog(message);
+                SetNarration(message);
+            }
+
+            RefreshLootPanel();
+            RefreshStatus();
+        }
+
+        private bool TryStoreLoot(PlacedItem item, ItemDefinition definition)
+        {
+            PlacedItem placed;
+            string error;
+            if (_bag.TryAddOrStack(
+                    definition.Id,
+                    item.BaseShape,
+                    item.Rotatable,
+                    item.Count,
+                    definition.MaxStack,
+                    out placed,
+                    out error))
+            {
+                ItemTransfer.PreserveAll(item, placed);
+                return true;
+            }
+
+            if (SecureContainerRules.IsEligible(definition)
+                && _secure.TryAddOrStack(
+                    definition.Id,
+                    item.BaseShape,
+                    item.Rotatable,
+                    item.Count,
+                    definition.MaxStack,
+                    out placed,
+                    out error))
+            {
+                ItemTransfer.PreserveAll(item, placed);
+                return true;
+            }
+
+            return false;
         }
 
         private void CloseLoot()
@@ -1723,7 +1867,14 @@ namespace BitRunner.Game
             }
 
             _lootOpen = false;
-            _lootOverlay.SetActive(false);
+            _lootPanel.SetActive(false);
+            if (_lootBoxRect != null)
+            {
+                Destroy(_lootBoxRect.gameObject);
+                _lootBoxRect = null;
+                _lootBoxView = null;
+            }
+
             if (_lootDrag != null)
             {
                 _lootDrag.enabled = false;
@@ -1762,11 +1913,15 @@ namespace BitRunner.Game
             }
 
             _lastPlayerItemCount = playerCount;
-            if (_lootHint != null && _lootBag != null)
+
+            // 拖拽用的就是外壳的 F1 / F3，所以拖动完必须让那两个视图重画一遍。
+            _shell.RefreshContainers();
+            if (_lootBoxView != null)
             {
-                _lootHint.text = "容器 " + _lootBag.Count + " 件　·　携带 " + _bag.FreeCellCount + " 格空闲";
+                _lootBoxView.Refresh();
             }
 
+            RefreshLootPanel();
             RefreshStatus();
         }
 
@@ -1816,35 +1971,7 @@ namespace BitRunner.Game
             AppendLog(message);
             SetNarration(message);
             RefreshAll();
-            _lootPlayerView.Refresh();
-            _lootSecureView.Refresh();
-        }
-
-        private void UpdateLootHover(Vector2 screen)
-        {
-            if (!_lootOpen || _lootBag == null)
-            {
-                return;
-            }
-
-            PlacedItem item = FindItemAt(_lootBoxRect, _lootBag, screen);
-            if (item == null)
-            {
-                item = FindItemAt(_lootPlayerRect, _bag, screen);
-            }
-
-            if (item == null)
-            {
-                item = FindItemAt(_lootSecureRect, _secure, screen);
-            }
-
-            if (item == null)
-            {
-                _lootItemInfo.text = "拖动物品到背包或保险箱";
-                return;
-            }
-
-            _lootItemInfo.text = "悬停查看完整物品信息";
+            _shell.RefreshContainers();
         }
 
         private PlacedItem FindItemAt(RectTransform rect, BagInventory bag, Vector2 screen)
@@ -2145,6 +2272,11 @@ namespace BitRunner.Game
         {
             // 日志归外壳持有：与基地同一块面板、同一份内容，切模式连续。
             _shell.AppendLog(text);
+        }
+
+        private static bool Contains(RectTransform rect, Vector2 screen)
+        {
+            return rect != null && RectTransformUtility.RectangleContainsScreenPoint(rect, screen, null);
         }
 
         private static bool IsPointerOver(RectTransform rect)

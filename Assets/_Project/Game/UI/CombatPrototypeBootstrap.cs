@@ -128,10 +128,6 @@ namespace BitRunner.Game
         private Text _tooltipText;
         private RectTransform _canvasRect;
 
-        private GameObject _endOverlay;
-        private Text _endTitle;
-        private Text _endSubtitle;
-
         private bool _lootPhase;
         private int _takenValue;
         private readonly List<RectTransform> _enemyBagRects = new List<RectTransform>();
@@ -296,13 +292,11 @@ namespace BitRunner.Game
                 return;
             }
 
+            // 结局不再有遮罩：胜负一判定就弹栈离场（见 CheckEnd / EndRetreat / FinishLoot），
+            // 这里只是保底——万一还有一条路径把 _ended 设上而没走 Leave。
             if (_ended)
             {
-                if (mouse.leftButton.wasPressedThisFrame)
-                {
-                    Leave();
-                }
-
+                Leave();
                 return;
             }
 
@@ -441,7 +435,6 @@ namespace BitRunner.Game
 
             BuildTooltip(_shell.TooltipLayer);
             BuildFxLayer(_shell.DragLayer);
-            BuildEndOverlay(_shell.EndLayer);
 
             BuildPlayerInteraction();
             BuildLootInteraction();
@@ -685,27 +678,6 @@ namespace BitRunner.Game
 
             _tooltipText = CreateText(_tooltipPanel.transform, "Text", string.Empty, FontBody, TextColor, new Vector2(8f, -6f), new Vector2(224f, 168f), TextAnchor.UpperLeft);
             _tooltipPanel.SetActive(false);
-        }
-
-        /// <summary>结局遮罩挂在外壳的 EndLayer 上——它必须压住日志和背包，说明"这一场结束了"。</summary>
-        private void BuildEndOverlay(Transform layer)
-        {
-            _endOverlay = new GameObject("CombatEndOverlay", typeof(RectTransform), typeof(Image));
-            _endOverlay.transform.SetParent(layer, false);
-
-            var rect = (RectTransform)_endOverlay.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = Vector2.zero;
-            rect.sizeDelta = ShellRegions.ReferenceResolution;
-            _endOverlay.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.78f);
-
-            RectTransform box = CreateCenteredPanel(_endOverlay.transform, "Box", Vector2.zero, new Vector2(320f, 150f), PanelColor);
-            _endTitle = CreateCenteredText(box, "Title", string.Empty, 26, TextColor, new Vector2(0f, 28f), new Vector2(300f, 36f));
-            _endSubtitle = CreateCenteredText(box, "Subtitle", string.Empty, FontPanelTitle, MutedColor, new Vector2(0f, -18f), new Vector2(290f, 44f));
-
-            _endOverlay.SetActive(false);
         }
 
         private bool IsPlayerItemAvailable(PlacedItem item)
@@ -1093,6 +1065,10 @@ namespace BitRunner.Game
             _secondaryText.color = MutedColor;
         }
 
+        /// <summary>
+        /// 收尾判定。战斗**不再弹结算窗**——胜负/撤离都直接弹栈回上一屏，
+        /// 结论写进播报行和 G 区日志（外壳的日志跨模式连续，回去还看得见）。
+        /// </summary>
         private void CheckEnd()
         {
             if (!_engine.IsFinished || _ended)
@@ -1119,13 +1095,11 @@ namespace BitRunner.Game
                 _secondaryRect.gameObject.SetActive(false);
             }
 
-            GameSession.CompleteExpedition(false);
             _ended = true;
             _exit = CombatExit.Defeated;
+            GameSession.CompleteExpedition(false);
             UpdateShell();
-            _endOverlay.SetActive(true);
-            _endTitle.text = "失败";
-            _endSubtitle.text = "背包已丢失。\n点击返回基地。";
+            Leave();
         }
 
         private void EndRetreat(bool enemyFled)
@@ -1142,21 +1116,13 @@ namespace BitRunner.Game
                 // 关键差异：不再 LoadScene 回探索。弹栈即可——背包、日志、账本一点没动过。
                 GameSession.RetreatEncounter(_player.Hp, enemyFled);
                 UpdateShell();
-                _endTitle.text = enemyFled ? "敌人已逃离" : "已撤离";
-                _endSubtitle.text = enemyFled
-                    ? "敌人逃走了，没有战利品。\n点击继续探索。"
-                    : "你脱离了战斗，背包保留。\n点击继续探索。";
-                _endOverlay.SetActive(true);
+                Leave();
                 return;
             }
 
             GameSession.CompleteExpedition(true);
             UpdateShell();
-            _endOverlay.SetActive(true);
-            _endTitle.text = enemyFled ? "敌人已逃离" : "已撤离";
-            _endSubtitle.text = enemyFled
-                ? "敌人逃走了，没有战利品。\n点击返回基地。"
-                : "你脱离了战斗，背包保留。\n点击返回基地。";
+            Leave();
         }
 
         private void BeginLoot()
@@ -1313,22 +1279,18 @@ namespace BitRunner.Game
                 GameSession.CompleteEncounter(_player.Hp);
                 _ended = true;
                 _exit = CombatExit.Looted;
-                _endOverlay.SetActive(true);
-                _endTitle.text = "胜利";
-                _endSubtitle.text = "带出战利品：" + _takenValue + "\n点击继续探索。";
+                Leave();
                 return;
             }
 
             GameSession.CompleteExpedition(true);
             _ended = true;
             _exit = CombatExit.Looted;
-            _endOverlay.SetActive(true);
-            _endTitle.text = "已撤离";
-            _endSubtitle.text = "带出战利品：" + _takenValue + "\n点击返回基地。";
+            Leave();
         }
 
         /// <summary>
-        /// 点击结局遮罩后离场。压栈模式只弹栈不换场景——这是本步最大的行为变化：
+        /// 离场。压栈模式只弹栈不换场景——这是本步最大的行为变化：
         /// 原来赢一场战斗会 LoadScene 把探索界面的 2122 行 UI 全部重建，现在只销毁四个容器。
         /// </summary>
         private void Leave()
@@ -1412,12 +1374,6 @@ namespace BitRunner.Game
             {
                 Destroy(_tooltipPanel);
                 _tooltipPanel = null;
-            }
-
-            if (_endOverlay != null)
-            {
-                Destroy(_endOverlay);
-                _endOverlay = null;
             }
 
             if (_fxPulse != null)
