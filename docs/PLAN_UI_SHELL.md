@@ -553,3 +553,95 @@ Step 1/2 已过的项：
 ——本轮因此白查了一轮"左栏坐标对不上"。**可靠做法是文件式** `ScreenCapture.CaptureScreenshot(path)`
 （帧末落盘，隔一次工具调用再读文件），或每次 `Play` 后的首张。另外 `GetPixels32()` 是**自下而上**的行序，
 按 yTop 取区域必须换算 `row = (h-1-yTop)*w`，否则量到的完全不是你以为的那块地方。
+
+---
+
+## 实施记录 · Step 3：战斗压栈
+
+**目标**：战斗不再 `LoadScene("CombatPrototype")`，改为压在探索上面。赢一场战斗原先要重建
+2122 + 1518 行 UI，现在只销毁四个容器。
+
+### 外壳：屏幕栈
+
+```csharp
+var screen = shell.PushScreen("Combat");   // 隐藏当前屏，新开 B/C/D/F2 四个容器
+screen.Region(ShellRegionId.Stage)          // 战斗往这里建 C 区
+shell.PopScreen(screen);                    // 销毁这组，恢复下面那组
+```
+
+`GameShell.Region(id)` 永远返回**栈顶**那一组，所以基地/探索/战斗的既有调用点一行没改。
+A 账本 / E 左栏 / F1 背包 / F3 保险箱 / G 日志**不在栈里**——它们本来就该跨模式连续。
+栈深 1 = 只有默认屏，2 = 战斗压在上面。
+
+### 七区映射（战斗）
+
+| 区 | 原战斗界面 | 现在 |
+|---|---|---|
+| A | 没有（战斗看不到 bit 和债务） | 外壳账本，与基地/探索同一份 `CampaignState` |
+| B | 状态面板内 134×26「结束回合」+ 两个 150×26 浮动按钮 | 主按钮 `(455,14,160,28)` 承载 结束回合/返回地点/离开；撤离与搜刮全部共用 `SecondaryAction1`；动画速度移到 `SecondaryAction2` |
+| C | 三张 170×130 全卡 + 150×176 状态面板 | 焦点敌人全细节：生命 / 能量 / 护盾 / 护甲 / 减伤 / 完整意图 |
+| D | —（三张卡各占 170×130） | 3 行 × 44：名称 / 血条 / 意图词 / 护盾·件数·状态 |
+| E | 状态面板自绘 | 外壳左栏：生命条 / 能量 / 护盾 / 回合 / 弹药 |
+| F1 | 自建 6×5 背包 | **外壳的 `PackView` 实例**，战斗只换 `ItemEnabledPredicate`，结束时置回 null |
+| F3 | 自建保险箱 | **外壳的 `SecureView` 实例**，同上 |
+| F2 | 三张卡内各一个 4×3 背包 | 目标背包。三个敌人的 4×3 叠在同一位置，只有焦点那个 `SetActive(true)`——`LootInteraction` 仍持有全部三个源，所以「搜刮全部」照样扫光 |
+| G | 自建 250×160 日志，每次重写最后 10 条 | 外壳日志，按 `_loggedEventCount` 追加增量。探索最后发生的事留在最上面 |
+
+战斗的姿态从「三张牌并排」变成「一行看态势 + 一块看焦点」：D 侧栏回答"打谁、还剩多少、它想干什么"，
+C 舞台回答"这一只的每一项数字"。这个划分能成立，是因为代码里**本来就有** `_selectedEnemy`
+（点击赋值、高亮、`CurrentTarget()` 都读它），只是原来的 UI 没把"焦点"显式化。
+
+### 探索侧
+
+```csharp
+private void EnterCombat()
+{
+    if (_containerWindows != null) _containerWindows.CloseAll();
+    gameObject.SetActive(false);                        // 静默自己这一侧所有 Update
+    CombatPrototypeBootstrap.Launch(_shell, OnCombatExit);
+}
+```
+
+`gameObject.SetActive(false)` 而不是 `enabled = false`：探索的拖拽、弹窗、浮窗分散在多个组件上，
+关 GameObject 一次全停；退出回调是普通委托，不受激活状态影响。
+
+三条出口：
+
+| 出口 | 数据 | 回到哪里 |
+|---|---|---|
+| Looted（打赢 + 搜刮完） | `CompleteEncounter(hp)`：生命写回、`EncountersCleared++` | 弹栈回探索，刷新后继续 |
+| Retreated（撤离 / 敌人逃离） | `RetreatEncounter(hp, fled)` | 弹栈回探索 |
+| Defeated | `CompleteExpedition(false)`：背包丢失 | `LoadScene("BasePrototype")`（Step 4 再改） |
+
+### 验收硬数据（同一次 Play，探索 → 战斗 → 弹栈回探索）
+
+| 区域 | 差异像素 | 结论 |
+|---|---|---|
+| **A 账本** | **0 / 57354（0.000%）** | 三模式像素级相同 |
+| **E 左栏** | **0 / 47700（0.000%）** | 弹栈后连数值位置都没动 |
+| **F1 背包** | **0 / 62275（0.000%）** | 同一 `BagView` 实例（`GetHashCode` 前后相同） |
+| **F3 保险箱** | **0 / 29160（0.000%）** | 同上 |
+| **D 侧栏** | **0 / 124146（0.000%）** | 行动袋、页签、footer 全部原样复活 |
+| **F2 中段** | **0 / 104145（0.000%）** | 结果预估原样复活 |
+| **B 主按钮** | **0 / 20520（0.000%）** | 「执行」原样复活 |
+| C 舞台 | 4.1% | 预期（叙事文本换成战斗结果） |
+| G 日志 | 6.0% | 预期（追加了战斗事件） |
+
+战斗**内**与探索对比：A 仍然 0.000%；F1/F3 的 11.1% / 4.1% 全部来自 `ItemEnabledPredicate`
+压暗了本回合不可用的物品——格子位置、尺寸、物品槽位逐像素一致（放大 3 倍肉眼可确认）。
+
+### 两个必须记住的坑
+
+1. **`Launch` 里必须显式调 `Initialize()`，不能等 `Start()`。**
+   压栈是在别的组件的调用栈里发起的，此时 Unity 可能把新组件的 Start 推迟到场景切换之后，
+   结果就是"组件挂上了、界面一个控件都没有"。现在 `Start()` 只是 `Initialize()` 的兜底，
+   靠 `_initialized` 防重。
+2. **Unity 编辑器在窗口失去焦点时会停住 Play 循环**（`Time.frameCount` 不前进）。
+   这时反射调用任何"下一帧才生效"的逻辑都会拿到 null 字段，容易误判成代码 bug。
+   可靠的推进方式：`EditorApplication.isPaused = true; EditorApplication.Step() × N; isPaused = false;`。
+   副作用是 Job 系统会刷一串 `JobTempAlloc` 警告——那是单步推进造成的，不是游戏代码的问题。
+
+### 仍未解决
+
+基地 → 探索 仍是 `LoadScene("ExpeditionPrototype")`，`GameShell` 随场景重建，F1 的 `BagView` 实例会换掉。
+"拖到一半切模式、物品还留在光标下"这条只有把基地也搬进同一个场景才能过——即 Step 4。
