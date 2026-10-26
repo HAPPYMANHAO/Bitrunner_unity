@@ -369,7 +369,7 @@ namespace BitRunner.Tests
                 out inner,
                 out innerError), innerError);
 
-            // 保险箱只收 1×1 非武器/护甲。
+            // 保险箱收能放进 2×2 的非武器/护甲。
             Place(catalog, secure, "coin", 0, 0, 0);
 
             // 潜网舱：放一把密钥并选中。

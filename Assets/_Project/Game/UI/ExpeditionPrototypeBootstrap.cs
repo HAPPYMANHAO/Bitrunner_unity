@@ -66,6 +66,15 @@ namespace BitRunner.Game
         private bool _initialized;
 
         /// <summary>
+        /// 主界面的悬停源。= 行动拖拽那套 + 外壳的 F1 背包 / F3 保险箱。
+        ///
+        /// 外壳那两个是三种模式共用的控件，从来没进过行动拖拽的源列表；
+        /// 但玩家就会直接去悬停它们（背包里的装备、保险箱里的保底物资），
+        /// 少这两条就变成"主界面什么都悬停不出来"。这里只用于查信息，不参与拖拽。
+        /// </summary>
+        private readonly List<BaseBagSource> _mainHoverSources = new List<BaseBagSource>();
+
+        /// <summary>
         /// 压栈那一帧的点击不能算数。
         ///
         /// 「出征」和「执行」在主按钮上是同一个矩形（455,14,160,28）——基地的 Update 处理完这次按下、
@@ -189,6 +198,7 @@ namespace BitRunner.Game
             BuildPrimary(_screen.Region(ShellRegionId.Primary));
             BuildDock(_screen.Region(ShellRegionId.Dock));
             BuildActionDrag();
+            RebuildMainHoverSources();
             BuildBagOverlay(_shell.OverlayLayer);
             BuildLootOverlay(_shell.OverlayLayer);
             BuildItemTooltip(_shell.TooltipLayer);
@@ -741,6 +751,7 @@ namespace BitRunner.Game
                 _actionDrag.SetSources(ActionSources());
             }
 
+            RebuildMainHoverSources();
             RefreshTabs();
         }
 
@@ -1970,7 +1981,41 @@ namespace BitRunner.Game
                 return _bagDrag.Sources;
             }
 
-            return _actionDrag != null ? _actionDrag.Sources : null;
+            return _mainHoverSources;
+        }
+
+        /// <summary>重建主界面悬停源。切页签（行动 / 背包）时要重来一次。</summary>
+        private void RebuildMainHoverSources()
+        {
+            _mainHoverSources.Clear();
+
+            if (_actionDrag != null && _actionDrag.Sources != null)
+            {
+                _mainHoverSources.AddRange(_actionDrag.Sources);
+            }
+
+            if (_shell == null)
+            {
+                return;
+            }
+
+            _mainHoverSources.Add(new BaseBagSource
+            {
+                Name = "SHELL_PACK",
+                Bag = _bag,
+                Rect = _shell.PackBagRect,
+                View = _shell.PackView,
+                AcceptsActionItems = false
+            });
+
+            _mainHoverSources.Add(new BaseBagSource
+            {
+                Name = "SHELL_SECURE",
+                Bag = _secure,
+                Rect = _shell.SecureBagRect,
+                View = _shell.SecureView,
+                IsSecure = true
+            });
         }
 
         private PlacedItem FindHoveredItem(

@@ -781,7 +781,7 @@ namespace BitRunner.Game
                                   + InsuranceHub.HeightForLevel(_insurance.Level)
                                   + "（" + _insurance.CapacityFor(_insurance.Level) + " 格）"
                                   + "\n保险箱是唯一阵亡也不会丢的格子，"
-                                  + "\n只收 1×1 的非武器 / 护甲 / 比特。"
+                                  + "\n只收能放进 2×2 的非武器 / 护甲 / 比特。"
                                   + "\n升级：" + UpgradeText(_insurance.UpgradeCost, _insurance.UpgradeMaterialIds, _insurance.CanUpgrade);
 
             bool max = !_insurance.CanUpgrade;

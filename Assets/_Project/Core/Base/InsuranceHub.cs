@@ -6,7 +6,7 @@ namespace BitRunner.Core
     /// 子空间保险网络中枢：扩容保险箱。
     ///
     /// 保险箱是唯一「阵亡也不会丢」的格子，所以它的容量直接等于「一次探索能保底带走多少」。
-    /// 只加宽/加高，不改变 <see cref="SecureContainerRules"/> 的准入规则（仍然只收 1×1、
+    /// 只加宽/加高，不改变 <see cref="SecureContainerRules"/> 的准入规则（收能放进 2×2 的东西，
     /// 不收武器/护甲/比特）。
     /// </summary>
     public sealed class InsuranceHub

@@ -661,7 +661,7 @@ namespace BitRunner.Game
                     {
                         Message(SecureContainerRules.IsEligible(definition)
                             ? "保险箱空间不足。"
-                            : "保险箱只接受 1×1 非武器/护甲物品。");
+                            : "保险箱只接受能放进 2×2 的非武器/护甲物品。");
                     }
                 }
             }

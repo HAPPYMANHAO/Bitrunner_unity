@@ -40,11 +40,23 @@ namespace BitRunner.Tests
         }
 
         [Test]
-        public void MultiCellLootIsNotEligible()
+        public void MultiCellLootIsEligibleWhenItFits()
         {
             ItemCatalog catalog = DefaultItemLibrary.CreateCatalog();
 
-            Assert.IsFalse(SecureContainerRules.IsEligible(catalog.Get("idol")));
+            // 2×2 的雕像正好占满一个初始保险箱：这是"保底带走"该有的样子。
+            Assert.IsTrue(SecureContainerRules.IsEligible(catalog.Get("idol")));
+        }
+
+        [Test]
+        public void ActionItemsAreNotEligible()
+        {
+            ItemCatalog catalog = ExpeditionActionItemLibrary.CreateCatalog();
+
+            foreach (ItemDefinition definition in catalog.Definitions)
+            {
+                Assert.IsFalse(SecureContainerRules.IsEligible(definition), definition.Id);
+            }
         }
 
         [Test]

@@ -172,7 +172,10 @@ namespace BitRunner.Game
         private Image _fxSpark;
 
         // 点击瞬间的格子快照：消耗品用掉后背包里已经没有这个 ItemView 了。
+        // **必须连 actor 一起记**：BagInventory 的 InstanceId 是从 1 开始按背包各自编号的，
+        // 玩家背包里的 #5 和敌人背包里的 #5 是两个东西，只比 id 会把起点画到别人身上。
         private int _usedItemInstance = -1;
+        private string _usedItemActorId;
         private RectTransform _usedItemRect;
         private Sprite _usedItemSprite;
         private RectTransform _speedRect;
@@ -1497,7 +1500,20 @@ namespace BitRunner.Game
                 BagBinding source = FindBindingFor(ev.ActorId, ev.InstanceId);
                 if (source == null)
                 {
-                    continue;
+                    // 用掉之后连背包里都没有了（修复包这类），但玩家确实点了这一下：
+                    // 用点击瞬间的快照补一条，动画才不会整段消失。
+                    if (ev.InstanceId != _usedItemInstance || ev.ActorId != _usedItemActorId)
+                    {
+                        continue;
+                    }
+
+                    source = new BagBinding
+                    {
+                        Owner = _player,
+                        Bag = _player.Bag,
+                        Rect = _playerBagRect,
+                        View = _playerView
+                    };
                 }
 
                 var step = new UseAnimationStep
@@ -1542,6 +1558,23 @@ namespace BitRunner.Game
 
                 ItemView view;
                 if (binding.View.TryGetItemView(instanceId, out view))
+                {
+                    return binding;
+                }
+            }
+
+            // 视图里没有 ≠ 这一下没发生：消耗品用掉后视图已经刷新过了。
+            // 退一步按背包数据找，这样这一步仍然会播动画（起点走点击快照）。
+            for (int i = 0; i < _bags.Count; i++)
+            {
+                BagBinding binding = _bags[i];
+                if (binding.Owner == null || binding.Owner.Id != actorId || binding.Bag == null)
+                {
+                    continue;
+                }
+
+                PlacedItem item;
+                if (binding.Bag.TryGet(instanceId, out item))
                 {
                     return binding;
                 }
@@ -1650,6 +1683,7 @@ namespace BitRunner.Game
         private void SnapshotUsedItem(int instanceId)
         {
             _usedItemInstance = instanceId;
+            _usedItemActorId = _player != null ? _player.Id : null;
             _usedItemRect = null;
             _usedItemSprite = null;
 
@@ -1677,7 +1711,7 @@ namespace BitRunner.Game
                 _animItemRect = view.transform as RectTransform;
                 sprite = view.Image != null ? view.Image.sprite : null;
             }
-            else if (step.InstanceId == _usedItemInstance)
+            else if (step.InstanceId == _usedItemInstance && step.ActorId == _usedItemActorId)
             {
                 // 消耗品已经消失了，用点击瞬间的快照——否则这一步只剩目标闪光，看着像没做动画。
                 _animItemRect = _usedItemRect;
