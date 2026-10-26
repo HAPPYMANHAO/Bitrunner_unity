@@ -67,10 +67,13 @@ namespace BitRunner.Game
         public static readonly Rect Log = new Rect(486f, 239f, 150f, 111f);
 
         /// <summary>
-        /// 探索的丢弃区：保险箱正上方那块空位（F 带里唯一没被占的角落）。
-        /// 只在探索主界面出现；战斗里的丢弃区在 F2 战利品板内部。
+        /// 丢弃区：三种模式**共用这一个位置**——保险箱正上方那块空位，也是整块底带里唯一没被占的角落。
+        ///
+        /// 它以前跟着页签走（基地在商人网格下方、战斗在战利品板里、探索在别的角落），
+        /// 商人那一处正好贴着「出征」按钮，误触就会把东西删了。现在固定在离主按钮 12px 的
+        /// 这一小块：够远不会点错，够近拖得到，位置也永远一样。
         /// </summary>
-        public static readonly Rect DiscardBin = new Rect(399f, 238f, 62f, 20f);
+        public static readonly Rect DiscardBin = new Rect(399f, 242f, 54f, 20f);
 
         // ---- Screen 可建：三种模式三选一 ----
 

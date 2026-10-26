@@ -431,6 +431,7 @@ namespace BitRunner.Game
             BuildPrimary(_screen.Region(ShellRegionId.Primary));
             BuildBattlefield();
             BuildLootBoard(_screen.Region(ShellRegionId.Dock));
+            BuildDiscardBin(_screen.Region(ShellRegionId.Dock));
             BuildMessageLine();
 
             BuildTooltip(_shell.TooltipLayer);
@@ -633,13 +634,25 @@ namespace BitRunner.Game
             _lootAllText = CreateCenteredText(
                 _lootAllRect, "Label", "搜刮全部", FontBody, TextColor, Vector2.zero, new Vector2(164f, 20f));
             _lootAllRect.gameObject.SetActive(false);
+        }
 
-            // 丢弃区位置不动：把物品拖出去是最远的动作，藏在右下角正合适。
+        /// <summary>
+        /// 丢弃区。和基地、探索同一个位置（<see cref="ShellRegions.DiscardBin"/>，保险箱正上方），
+        /// 不再窝在战利品板内部——那一块位置随页签/阶段挪来挪去，玩家记不住，也容易误点。
+        /// 挂在 Dock 区域容器下：压栈/弹栈跟着这一屏走，不会漏到别的界面。
+        /// </summary>
+        private void BuildDiscardBin(RectTransform region)
+        {
+            Rect board = ShellRegions.BenchMid;
+            Rect bin = ShellRegions.DiscardBin;
             _discardRect = CreateCenteredPanel(
-                panel, "Discard",
-                ShellRegions.LocalIn(board, 108f, 100f, 68f, 18f),
-                new Vector2(68f, 18f), DiscardColor);
-            CreateCenteredText(_discardRect, "Label", "丢弃", FontCaption, TextColor, Vector2.zero, new Vector2(64f, 16f));
+                region, "DiscardBin",
+                ShellRegions.LocalIn(board, bin.x - board.x, bin.y - board.y, bin.width, bin.height),
+                ShellRegions.SizeOf(bin), DiscardColor);
+            AddBorder(_discardRect, DiscardHighlightColor);
+            CreateCenteredText(
+                _discardRect, "Label", "丢弃", FontCaption, TextColor, Vector2.zero,
+                new Vector2(bin.width - 4f, bin.height - 2f));
         }
 
         /// <summary>

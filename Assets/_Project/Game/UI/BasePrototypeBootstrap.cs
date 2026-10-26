@@ -215,6 +215,7 @@ namespace BitRunner.Game
             BuildDeploy(_baseScreen);
             BuildArtStage(_baseScreen);
             BuildStashPanel(_baseScreen);
+            BuildDiscardBin(_baseScreen);
 
             BuildDrag();
             BuildTooltip(_shell.TooltipLayer);
@@ -1231,9 +1232,6 @@ namespace BitRunner.Game
             _merchantRect = CreateBagRect(content, new Vector2(0f, 0f), new Vector2(6f * BagView.CellSize, 5f * BagView.CellSize));
             _merchantView = _merchantRect.gameObject.AddComponent<BagView>();
             _merchantView.Initialize(_merchant.Stock, _merchantRect, _palette);
-
-            _discardBinRect = CreateAnchoredPanel(content, "DiscardBin", new Vector2(46f, -108f), new Vector2(78f, 22f), DiscardColor);
-            CreateCenteredText(_discardBinRect, "Label", "丢弃", 9, TextColor, Vector2.zero, new Vector2(84f, 22f));
         }
 
         /// <summary>
@@ -1353,7 +1351,8 @@ namespace BitRunner.Game
             _commsUpgradeRect = upgrade;
         }
 
-        private void BuildDeploy(Transform canvas)        {
+        private void BuildDeploy(Transform canvas)
+        {
             // 出征：位置与尺寸直接取外壳常量——三种模式的「出征 / 执行 / 结束回合」是同一颗按钮，
             // 落在右侧命令列（行动菜单下方、日志上方），见 ShellRegions.PrimaryAction。
             _deployRect = CreateCenteredPanel(
@@ -1364,6 +1363,24 @@ namespace BitRunner.Game
             AddBorder(_deployRect, new Color32(96, 142, 186, 255));
             _deployImage = _deployRect.GetComponent<Image>();
             _deployText = CreateCenteredText(_deployRect, "Label", "出征", 11, TextColor, Vector2.zero, new Vector2(166f, 22f));
+        }
+
+        /// <summary>
+        /// 丢弃区。三种模式同一个位置（<see cref="ShellRegions.DiscardBin"/>）：保险箱正上方。
+        /// 它曾经挂在商人页签内容里，正好贴着「出征」，一次误点就把东西删了——现在离开页签、
+        /// 离开主按钮，位置固定。
+        /// </summary>
+        private void BuildDiscardBin(Transform canvas)
+        {
+            _discardBinRect = CreateCenteredPanel(
+                canvas, "DiscardBin",
+                ShellRegions.CenterOf(ShellRegions.DiscardBin),
+                ShellRegions.SizeOf(ShellRegions.DiscardBin),
+                DiscardColor);
+            AddBorder(_discardBinRect, DiscardHighlightColor);
+            CreateCenteredText(
+                _discardBinRect, "Label", "丢弃", FontCaption, TextColor, Vector2.zero,
+                new Vector2(ShellRegions.DiscardBin.width - 4f, ShellRegions.DiscardBin.height - 2f));
         }
 
         /// <summary>
