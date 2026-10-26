@@ -313,8 +313,7 @@ namespace BitRunner.Game
 
             if (result.Kind == ExpeditionOutcomeKind.Combat)
             {
-                _ended = true;
-                SceneManager.LoadScene("CombatPrototype");
+                EnterCombat();
                 return;
             }
 
@@ -330,6 +329,57 @@ namespace BitRunner.Game
             {
                 OpenLoot(result.LootIds);
             }
+        }
+
+        /// <summary>
+        /// 进入战斗：压栈，不换场景。
+        ///
+        /// 老做法是 LoadScene("CombatPrototype")，回来时再 LoadScene("ExpeditionPrototype")，
+        /// 于是两边的 2122 + 1518 行 UI 各重建一遍，背包里物品的格子位置、日志、账本全断。
+        /// 现在战斗整屏压在探索上面，探索这一屏只是被隐藏——回来时连选中高亮都还在。
+        ///
+        /// 把整个 GameObject 停掉，是为了让探索这边的拖拽/弹窗/浮动窗口在这期间完全静默；
+        /// 战斗的退出回调是普通委托，不受 GameObject 激活状态影响。
+        /// </summary>
+        private void EnterCombat()
+        {
+            if (_shell == null)
+            {
+                // 没有外壳说明这一屏还没建起来，宁可留在原地也不要把战斗压到空气中。
+                SetNarration("界面尚未就绪，稍后再试。");
+                return;
+            }
+
+            if (_containerWindows != null)
+            {
+                _containerWindows.CloseAll();
+            }
+
+            gameObject.SetActive(false);
+            CombatPrototypeBootstrap.Launch(_shell, OnCombatExit);
+        }
+
+        private void OnCombatExit(CombatPrototypeBootstrap.CombatExit exit)
+        {
+            gameObject.SetActive(true);
+
+            if (exit == CombatPrototypeBootstrap.CombatExit.Defeated)
+            {
+                _ended = true;
+                GameSession.LastMessage = "你倒下了，背包丢在了那里。";
+                SceneManager.LoadScene("BasePrototype");
+                return;
+            }
+
+            _selectedActionId = null;
+            RebuildActionBags();
+            RefreshAll();
+
+            string message = exit == CombatPrototypeBootstrap.CombatExit.Looted
+                ? "战斗胜利，战利品已带走。"
+                : "你脱离了战斗，回到" + (_scenario != null ? _scenario.ZoneName : "原地") + "。";
+            SetNarration(message);
+            AppendLog(message);
         }
 
         private void RefreshAll()

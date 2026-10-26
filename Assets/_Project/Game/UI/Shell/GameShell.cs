@@ -24,6 +24,53 @@ namespace BitRunner.Game
     }
 
     /// <summary>
+    /// 一屏。四个区域的容器归它所有，压栈时整组隐藏，弹栈时整组销毁。
+    ///
+    /// 存在理由：战斗要压在探索上面，而两者都想用 C/D/F2 这三个洞。
+    /// 洞是唯一的，所以每次压栈都新开一组容器——这样探索那一组原封不动地留在下面，
+    /// 弹栈后连滚动位置和选中高亮都还在。
+    /// </summary>
+    public sealed class ShellScreen
+    {
+        private readonly RectTransform[] _regions = new RectTransform[4];
+
+        public string Name { get; internal set; }
+
+        public RectTransform Region(ShellRegionId id)
+        {
+            return _regions[(int)id];
+        }
+
+        internal void Set(ShellRegionId id, RectTransform rect)
+        {
+            _regions[(int)id] = rect;
+        }
+
+        public void SetActive(bool on)
+        {
+            for (int i = 0; i < _regions.Length; i++)
+            {
+                if (_regions[i] != null && _regions[i].gameObject.activeSelf != on)
+                {
+                    _regions[i].gameObject.SetActive(on);
+                }
+            }
+        }
+
+        internal void Destroy()
+        {
+            for (int i = 0; i < _regions.Length; i++)
+            {
+                if (_regions[i] != null)
+                {
+                    Object.Destroy(_regions[i].gameObject);
+                    _regions[i] = null;
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// 单场景外壳：相机 + 画布 + 七个区域 + 六层容器。
     ///
     /// 这个类存在的唯一理由，是让三种模式共用同一批控件实例。背包、保险箱、日志、账本 HUD
@@ -106,11 +153,34 @@ namespace BitRunner.Game
         public Text SecureTitle { get; private set; }
         public BagView SecureView { get; private set; }
 
+        /// <summary>F1 的格子容器（BagView 的父）。战斗要往它上面挂 BagInteraction。</summary>
+        public RectTransform PackBagRect { get; private set; }
+
+        /// <summary>F3 的格子容器。搜刮时作为投放目标，LootInteraction 需要它。</summary>
+        public RectTransform SecureBagRect { get; private set; }
+
         public RectTransform LogRect { get; private set; }
         public Text LogText { get; private set; }
 
         private readonly Dictionary<ShellRegionId, RectTransform> _regions =
             new Dictionary<ShellRegionId, RectTransform>();
+
+        /// <summary>
+        /// 屏幕栈。第 0 个是基地/探索共用的那一组（常驻，永不销毁）；
+        /// 战斗压栈时在第 1 个位置新开一组，弹栈后第 0 个原样复活。
+        /// </summary>
+        private readonly List<ShellScreen> _screens = new List<ShellScreen>();
+
+        public ShellScreen CurrentScreen
+        {
+            get { return _screens.Count > 0 ? _screens[_screens.Count - 1] : null; }
+        }
+
+        /// <summary>栈深。0 表示外壳还没建好，1 表示只有默认那一屏，2 表示战斗压在上面。</summary>
+        public int ScreenDepth
+        {
+            get { return _screens.Count; }
+        }
 
         private readonly List<string> _logLines = new List<string>();
 
@@ -147,11 +217,90 @@ namespace BitRunner.Game
             return shell;
         }
 
-        /// <summary>Screen 唯一的入口：拿到某个洞的容器。容器坐标系原点在区域左上角之外，用 CenterOf 铺满。</summary>
+        /// <summary>
+        /// Screen 唯一的入口：拿到**当前栈顶**某个洞的容器。
+        /// 压栈之后自动指向新一组，弹栈之后自动指回原来那组——调用方不需要知道栈的存在。
+        /// </summary>
         public RectTransform Region(ShellRegionId id)
         {
-            RectTransform rect;
-            return _regions.TryGetValue(id, out rect) ? rect : null;
+            ShellScreen screen = CurrentScreen;
+            if (screen != null)
+            {
+                RectTransform rect = screen.Region(id);
+                if (rect != null)
+                {
+                    return rect;
+                }
+            }
+
+            RectTransform fallback;
+            return _regions.TryGetValue(id, out fallback) ? fallback : null;
+        }
+
+        /// <summary>
+        /// 压入一屏：隐藏当前屏，在 <see cref="ScreenLayer"/> 上新开一组四个区域容器并返回。
+        ///
+        /// 典型用法（战斗）：
+        ///   var screen = shell.PushScreen("Combat");
+        ///   在 screen.Region(Stage) / Side / Dock / Primary 上建 UI
+        ///   结束后 shell.PopScreen(screen)
+        ///
+        /// 注意：外壳持有的 A/E/F1/F3/G 不属于栈，压栈不会隐藏它们——它们本来就该连续。
+        /// 需要临时遮住的东西（弹窗、tooltip）走 OverlayLayer / TooltipLayer。
+        /// </summary>
+        public ShellScreen PushScreen(string name)
+        {
+            ShellScreen top = CurrentScreen;
+            if (top != null)
+            {
+                top.SetActive(false);
+            }
+
+            var screen = new ShellScreen { Name = name };
+            screen.Set(ShellRegionId.Primary, CreateRegionObject("Screen_" + name + "_Primary", ShellRegions.PrimaryAction));
+            screen.Set(ShellRegionId.Stage, CreateRegionObject("Screen_" + name + "_Stage", ShellRegions.Stage));
+            screen.Set(ShellRegionId.Side, CreateRegionObject("Screen_" + name + "_Side", ShellRegions.Side));
+            screen.Set(ShellRegionId.Dock, CreateRegionObject("Screen_" + name + "_Dock", ShellRegions.BenchMid));
+            _screens.Add(screen);
+            return screen;
+        }
+
+        /// <summary>弹出栈顶那一屏并销毁它，恢复下面一屏。只能弹非默认屏。</summary>
+        public void PopScreen(ShellScreen screen)
+        {
+            if (screen == null || _screens.Count <= 1)
+            {
+                return;
+            }
+
+            if (_screens[_screens.Count - 1] != screen)
+            {
+                return;
+            }
+
+            _screens.RemoveAt(_screens.Count - 1);
+            screen.Destroy();
+
+            ShellScreen top = CurrentScreen;
+            if (top != null)
+            {
+                top.SetActive(true);
+            }
+        }
+
+        /// <summary>只建一个区域容器（不建整屏）。默认屏与压栈屏共用这段。</summary>
+        private RectTransform CreateRegionObject(string name, Rect region)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(ScreenLayer, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = ShellRegions.CenterOf(region);
+            rect.sizeDelta = ShellRegions.SizeOf(region);
+            return rect;
         }
 
         private void Build(BagInventory pack, BagInventory secure, Dictionary<string, Color> palette)
@@ -231,25 +380,24 @@ namespace BitRunner.Game
             return rect;
         }
 
+        /// <summary>
+        /// 默认屏（第 0 层）。名字保持 Step 1 的 "Region_*"，因此层级结构、坐标与改造前完全一致。
+        /// </summary>
         private void BuildRegionContainers()
         {
-            CreateRegion(ShellRegionId.Primary, "Region_Primary", ShellRegions.PrimaryAction);
-            CreateRegion(ShellRegionId.Stage, "Region_Stage", ShellRegions.Stage);
-            CreateRegion(ShellRegionId.Side, "Region_Side", ShellRegions.Side);
-            CreateRegion(ShellRegionId.Dock, "Region_Dock", ShellRegions.BenchMid);
+            var screen = new ShellScreen { Name = "Default" };
+            _screens.Add(screen);
+
+            AddRegion(screen, ShellRegionId.Primary, "Region_Primary", ShellRegions.PrimaryAction);
+            AddRegion(screen, ShellRegionId.Stage, "Region_Stage", ShellRegions.Stage);
+            AddRegion(screen, ShellRegionId.Side, "Region_Side", ShellRegions.Side);
+            AddRegion(screen, ShellRegionId.Dock, "Region_Dock", ShellRegions.BenchMid);
         }
 
-        private void CreateRegion(ShellRegionId id, string name, Rect region)
+        private void AddRegion(ShellScreen screen, ShellRegionId id, string name, Rect region)
         {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(ScreenLayer, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = ShellRegions.CenterOf(region);
-            rect.sizeDelta = ShellRegions.SizeOf(region);
+            RectTransform rect = CreateRegionObject(name, region);
+            screen.Set(id, rect);
             _regions[id] = rect;
         }
 
@@ -345,6 +493,7 @@ namespace BitRunner.Game
                 PackRect,
                 new Vector2(0f, 2f),
                 new Vector2(6f * BagView.CellSize, 5f * BagView.CellSize));
+            PackBagRect = bagRect;
             PackView = bagRect.gameObject.AddComponent<BagView>();
             PackView.Initialize(pack, bagRect, palette);
         }
@@ -374,6 +523,7 @@ namespace BitRunner.Game
                 SecureRect,
                 new Vector2(0f, -8f),
                 new Vector2(2f * BagView.CellSize, 2f * BagView.CellSize));
+            SecureBagRect = secureRect;
             SecureView = secureRect.gameObject.AddComponent<BagView>();
             SecureView.Initialize(secure, secureRect, palette);
         }
