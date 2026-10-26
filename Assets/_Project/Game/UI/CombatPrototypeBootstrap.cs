@@ -182,6 +182,9 @@ namespace BitRunner.Game
 
         private bool _initialized;
 
+        /// <summary>压栈那一帧的点击不算数——理由同探索：发起压栈的那次按下会漏到新一屏。</summary>
+        private int _ignoreInputUntilFrame = -1;
+
         /// <summary>
         /// 由探索压栈启动战斗。挂到独立 GameObject 上，不加载场景。
         ///
@@ -213,6 +216,7 @@ namespace BitRunner.Game
             }
 
             _initialized = true;
+            _ignoreInputUntilFrame = Time.frameCount;
 
             GameSession.EnsureInitialized();
             _catalog = GameSession.Catalog;
@@ -251,7 +255,7 @@ namespace BitRunner.Game
 
         private void Update()
         {
-            if (SettingsOverlay.BlocksInput)
+            if (SettingsOverlay.BlocksInput || Time.frameCount <= _ignoreInputUntilFrame)
             {
                 return;
             }

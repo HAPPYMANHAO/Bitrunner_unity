@@ -203,6 +203,19 @@ namespace BitRunner.Game
             }
         }
 
+        /// <summary>
+        /// 场景切换（回主菜单、重开存档）会把外壳连同它的 GameObject 一起销毁。
+        /// 静态引用必须跟着清掉，否则下一次 <see cref="Ensure"/> 会拿到一个已销毁的对象，
+        /// 表现为"点了开始游戏什么都没建"。
+        /// </summary>
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
+        }
+
         public static GameShell Ensure(BagInventory pack, BagInventory secure, Dictionary<string, Color> palette)
         {
             if (Instance != null)

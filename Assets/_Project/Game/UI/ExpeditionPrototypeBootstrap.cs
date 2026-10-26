@@ -1,9 +1,9 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Text;
 using BitRunner.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using static BitRunner.Game.UiFactory;
 using static BitRunner.Game.UiPalette;
@@ -56,6 +56,24 @@ namespace BitRunner.Game
         private bool _showPlayerBag;
         private bool _ended;
 
+        // ---- 压在基地上面的一屏 ----
+        /// <summary>本屏在 <see cref="GameShell"/> 屏幕栈里的那一组容器。弹栈时连同它一起销毁。</summary>
+        private ShellScreen _screen;
+
+        /// <summary>退出回调。基地据此恢复自己的那一屏。</summary>
+        private Action<ExpeditionExit> _onExit;
+
+        private bool _initialized;
+
+        /// <summary>
+        /// 压栈那一帧的点击不能算数。
+        ///
+        /// 「出征」和「执行」在主按钮上是同一个矩形（455,14,160,28）——基地的 Update 处理完这次按下、
+        /// 立刻把探索拉起来，同一帧里探索的 Update 也会看到 wasPressedThisFrame=true，
+        /// 于是刚进探索就自己执行了一次行动。这里把发起压栈的那一帧整帧屏蔽掉。
+        /// </summary>
+        private int _ignoreInputUntilFrame = -1;
+
         private GameObject _bagOverlay;
         private RectTransform _bagCloseRect;
         private RectTransform _bagDiscardRect;
@@ -90,8 +108,49 @@ namespace BitRunner.Game
         private RectTransform _itemTooltipRect;
         private Text _itemTooltipText;
 
+        /// <summary>这一趟探索是怎么结束的。基地据此决定刷新什么、要不要弹结局。</summary>
+        public enum ExpeditionExit
+        {
+            /// <summary>正常撤出 / 走完节点，包裹已入库。</summary>
+            Completed,
+
+            /// <summary>倒下，背包丢了，本次出征结束。</summary>
+            Defeated,
+
+            /// <summary>没有进行中的探索，什么都没做。</summary>
+            Aborted
+        }
+
+        /// <summary>
+        /// 由基地压栈启动探索。与 <see cref="CombatPrototypeBootstrap.Launch"/> 同一个套路：
+        /// 显式 Initialize，不等 Unity 的 Start——压栈是在别的组件的调用栈里发起的，
+        /// 等 Start 有时会被推迟到下一帧，那时界面已经晚了。
+        /// </summary>
+        public static ExpeditionPrototypeBootstrap Launch(GameShell shell, Action<ExpeditionExit> onExit)
+        {
+            var host = new GameObject("ExpeditionScreen");
+            var expedition = host.AddComponent<ExpeditionPrototypeBootstrap>();
+            expedition._shell = shell;
+            expedition._onExit = onExit;
+            expedition.Initialize();
+            return expedition;
+        }
+
         private void Start()
         {
+            Initialize();
+        }
+
+        private void Initialize()
+        {
+            if (_initialized)
+            {
+                return;
+            }
+
+            _initialized = true;
+            _ignoreInputUntilFrame = Time.frameCount;
+
             GameSession.EnsureInitialized();
             _catalog = GameSession.Catalog;
             _bag = GameSession.PlayerBag;
@@ -107,19 +166,28 @@ namespace BitRunner.Game
             if (_scenario == null)
             {
                 GameSession.LastMessage = "没有进行中的探索。";
-                SceneManager.LoadScene("BasePrototype");
+                Exit(ExpeditionExit.Aborted);
                 return;
             }
 
             // 相机、画布、左栏、账本、背包、保险箱、日志全部来自外壳实例——
             // 与基地是同一批控件，切模式不重建。
-            _shell = GameShell.Ensure(_bag, _secure, _palette);
+            if (_shell == null)
+            {
+                _shell = GameShell.Ensure(_bag, _secure, _palette);
+            }
+
             _canvasRect = _shell.Root;
 
-            BuildStage(_shell.Region(ShellRegionId.Stage));
-            BuildSide(_shell.Region(ShellRegionId.Side));
-            BuildPrimary(_shell.Region(ShellRegionId.Primary));
-            BuildDock(_shell.Region(ShellRegionId.Dock));
+            // 压栈：基地那一屏整组隐藏（不销毁），探索这一屏新开四个容器。
+            // A 账本 / E 左栏 / F1 背包 / F3 保险箱 / G 日志不入栈，所以两屏之间是同一批控件。
+            _screen = _shell.PushScreen("Expedition");
+            _shell.SetLedgerVisible(true);
+
+            BuildStage(_screen.Region(ShellRegionId.Stage));
+            BuildSide(_screen.Region(ShellRegionId.Side));
+            BuildPrimary(_screen.Region(ShellRegionId.Primary));
+            BuildDock(_screen.Region(ShellRegionId.Dock));
             BuildActionDrag();
             BuildBagOverlay(_shell.OverlayLayer);
             BuildLootOverlay(_shell.OverlayLayer);
@@ -142,7 +210,7 @@ namespace BitRunner.Game
 
         private void Update()
         {
-            if (SettingsOverlay.BlocksInput)
+            if (SettingsOverlay.BlocksInput || Time.frameCount <= _ignoreInputUntilFrame)
             {
                 return;
             }
@@ -307,7 +375,7 @@ namespace BitRunner.Game
             {
                 _ended = true;
                 GameSession.CompleteExpedition(false);
-                SceneManager.LoadScene("BasePrototype");
+                Exit(ExpeditionExit.Defeated);
                 return;
             }
 
@@ -321,7 +389,7 @@ namespace BitRunner.Game
             {
                 _ended = true;
                 GameSession.CompleteExpedition(true);
-                SceneManager.LoadScene("BasePrototype");
+                Exit(ExpeditionExit.Completed);
                 return;
             }
 
@@ -367,7 +435,7 @@ namespace BitRunner.Game
             {
                 _ended = true;
                 GameSession.LastMessage = "你倒下了，背包丢在了那里。";
-                SceneManager.LoadScene("BasePrototype");
+                Exit(ExpeditionExit.Defeated);
                 return;
             }
 
@@ -380,6 +448,63 @@ namespace BitRunner.Game
                 : "你脱离了战斗，回到" + (_scenario != null ? _scenario.ZoneName : "原地") + "。";
             SetNarration(message);
             AppendLog(message);
+        }
+
+        /// <summary>
+        /// 离场：收干净挂在外壳公共层上的东西，弹掉自己这一屏，然后通知基地。
+        ///
+        /// 老做法是 LoadScene("BasePrototype")——基地整屏重建，背包、日志、账本全断。
+        /// 现在只是把上面这一层揭掉，下面基地那一屏一直原样待着。
+        /// </summary>
+        private void Exit(ExpeditionExit exit)
+        {
+            Action<ExpeditionExit> callback = _onExit;
+            _onExit = null;
+
+            TearDown();
+
+            if (_shell != null && _screen != null)
+            {
+                _shell.PopScreen(_screen);
+                _screen = null;
+            }
+
+            Destroy(gameObject);
+
+            if (callback != null)
+            {
+                callback(exit);
+            }
+        }
+
+        /// <summary>
+        /// 收掉建在外壳公共层上的东西。Screen 那四个容器由 PopScreen 销毁，
+        /// 但遮罩、物品提示、浮动窗口挂在 OverlayLayer / TooltipLayer 上，不清理就会跟着外壳活到下一屏。
+        /// </summary>
+        private void TearDown()
+        {
+            if (_containerWindows != null)
+            {
+                _containerWindows.CloseAll();
+            }
+
+            if (_bagOverlay != null)
+            {
+                Destroy(_bagOverlay);
+                _bagOverlay = null;
+            }
+
+            if (_lootOverlay != null)
+            {
+                Destroy(_lootOverlay);
+                _lootOverlay = null;
+            }
+
+            if (_itemTooltipPanel != null)
+            {
+                Destroy(_itemTooltipPanel);
+                _itemTooltipPanel = null;
+            }
         }
 
         private void RefreshAll()

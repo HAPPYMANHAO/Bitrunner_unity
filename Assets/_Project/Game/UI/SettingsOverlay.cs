@@ -229,10 +229,16 @@ namespace BitRunner.Game
             }
         }
 
-        /// <summary>存档只在基地允许：探索/战斗中保存会留下无法还原的中途状态。</summary>
+        /// <summary>
+        /// 存档只在基地允许：探索/战斗中保存会留下无法还原的中途状态。
+        ///
+        /// 三种模式现在是同一个场景的三层屏幕，不能再靠场景名判断——
+        /// 改看外壳的栈深：1 = 只有基地那一屏，2 = 探索压着，3 = 战斗压着。
+        /// </summary>
         private static bool CanSaveNow()
         {
-            return SceneManager.GetActiveScene().name == "BasePrototype";
+            GameShell shell = GameShell.Instance;
+            return shell != null && shell.ScreenDepth <= 1;
         }
 
         private void SaveGame()

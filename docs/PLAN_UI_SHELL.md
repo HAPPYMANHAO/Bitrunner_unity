@@ -645,3 +645,67 @@ private void EnterCombat()
 
 基地 → 探索 仍是 `LoadScene("ExpeditionPrototype")`，`GameShell` 随场景重建，F1 的 `BagView` 实例会换掉。
 "拖到一半切模式、物品还留在光标下"这条只有把基地也搬进同一个场景才能过——即 Step 4。
+
+---
+
+## 实施记录 · Step 4：单场景（基地也在栈里）
+
+**目标**：`基地 → 探索` 不再 `LoadScene`，三模式变成同一个场景里的三层；删掉 `CombatPrototype` /
+`ExpeditionPrototype` 两个场景。原先"拖到一半切模式、物品还在光标下"这条过不了，就是因为基地↔探索
+还在换场景——外壳连同 `BagView` 一起重建，`InstanceID` 必然变。
+
+### 最终结构
+
+```
+ScreenLayer
+├─ Region_Primary / Stage / Side / Dock      默认屏（Step 1 建的，现在只当占位）
+├─ Screen_Base                              基地整屏（基地自己建的四块都在里面）
+├─ Screen_Expedition_Primary/Stage/Side/Dock 探索压的第一层
+└─ Screen_Combat_Primary/Stage/Side/Dock     战斗压的第二层
+   ＋ Band_Battlefield / CombatMessage       战斗的跨区带与播报行（Step 3 加的，挂 ScreenLayer）
+
+栈深：1 = 基地　2 = 探索　3 = 战斗
+```
+
+A 账本 / E 左栏 / F1 背包 / F3 保险箱 / G 日志不入栈，三层共用同一批控件——这是"看起来是一个场景"
+以及"背包里的东西一直在原处"的物理保证。
+
+### 三处改动
+
+| 文件 | 改动 |
+|---|---|
+| `BasePrototypeBootstrap` | 基地内容建在 `_baseScreen`（整屏容器）里；`Deploy()` 变成 `SetBaseVisible(false)` + `gameObject.SetActive(false)` + `ExpeditionPrototypeBootstrap.Launch(...)`；新增 `OnExpeditionExit` 恢复并 `RefreshAll()` |
+| `ExpeditionPrototypeBootstrap` | 新增 `Launch/Initialize/Exit/TearDown` + `ExpeditionExit{Completed,Defeated,Aborted}`；三处 `LoadScene("BasePrototype")` 改成 `Exit(...)`；建 UI 从 `_shell.Region(...)` 改为 `_screen.Region(...)` |
+| `CombatPrototypeBootstrap` | 只有 Defeated 那条出口的行为变了：不再 `LoadScene`，而是回调探索 → 探索 `Exit(Defeated)` → 基地 |
+| `SettingsOverlay` | `CanSaveNow()` 从"场景名 == BasePrototype"改成"栈深 ≤ 1" |
+| `GameShell` | `OnDestroy` 清空 `Instance`（回主菜单后重开档案要用） |
+| `Scenes/` | 删除 `CombatPrototype.unity`、`ExpeditionPrototype.unity`；`EditorBuildSettings` 只留 MainMenu + BasePrototype |
+
+### 四个坑（都是实测踩出来的）
+
+1. **压栈那一帧的点击会漏到新一屏。**
+   「出征」(455,14,160,28) 和「执行」是同一个矩形。基地的 `Update` 处理完这次按下、立刻拉起探索，
+   同一帧里探索的 `Update` 也看到 `wasPressedThisFrame == true`，于是刚进探索就自己执行了一次行动。
+   三处 bootstrap 都加了 `_ignoreInputUntilFrame = Time.frameCount`，`Update` 首行判掉。
+2. **基地的内容必须包在一个整屏容器里。** `PushScreen` 只隐藏"自己的那一屏"（四个区域容器），
+   基地当初是直接铺在 `ScreenLayer` 上的，压栈后压根收不掉——探索会和基地叠在一起。
+   现在 `_baseScreen` 是一个 640×360 的透明容器，`SetActive(false)` 一次收干净。
+3. **`Destroy` 在 `isPaused = true` + `EditorApplication.Step()` 下不执行。**
+   验证时一度看到"弹栈后敌人卡还在、depth 已经是 1"，误判成清理没生效。
+   真相是暂停单步不会跑到帧末的销毁阶段。**放松 `isPaused`、让真实帧过去再查**，一切正常
+   （`combatN=0 expN=0 depth=1`）。这条和 Step 2 那条"失焦停帧"是同一类假象。
+4. **`GameShell.Instance` 必须在 `OnDestroy` 里清空。** 回主菜单（`LoadScene("MainMenu")`）会销毁外壳，
+   但静态字段还指着已销毁对象；再点开始游戏时 `Ensure()` 直接返回那个空壳，表现为"什么都没建"。
+   实测：MainMenu 时 `shellNull=True`，再进基地 `shellNull=False`、`depth=1`、`Screen_Base` 在。
+
+### 验收数据
+
+| 路径 | 结果 |
+|---|---|
+| 基地启动 | `depth=1`，`ScreenLayer` = 四区容器 + `Screen_Base(True)` |
+| 出征 | `depth=2`，`baseGoActive=False`、`baseScreenActive=False`、`expN=1`，画面无基地残留 |
+| 探索里打起来 | `depth=3`，`combatN=1`、`expActive=False` |
+| 战斗结束回探索 | `depth=2`，`combatN=0`、`expActive=True`，日志接着写 |
+| 探索结束回基地 | `depth=1`，`expLeft=0`、`baseActive=True`，`Screen_Base(True)`，账本恢复 |
+| 战斗倒下 | 战斗 Defeat → `Leave` → 探索 `Exit(Defeated)` → 基地，日志出现"你倒下了，背包丢在了那里。" |
+| 回主菜单再开 | 外壳重建，`shellNull` False→True→False，基地正常 |

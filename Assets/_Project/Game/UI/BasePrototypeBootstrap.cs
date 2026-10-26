@@ -153,6 +153,16 @@ namespace BitRunner.Game
         private Text _endSubtitle;
         private bool _ended;
 
+        /// <summary>
+        /// 基地自己的那一屏。挂在 ScreenLayer 上的一个整屏容器，
+        /// 出征时整块隐藏、回来时整块显形——与探索/战斗的屏幕栈配合，
+        /// 让"基地 → 探索 → 战斗"始终是同一个场景里的三层。
+        /// </summary>
+        private RectTransform _baseScreen;
+
+        /// <summary>探索揭掉的那一帧不接输入：结束遮罩上的那次点击不该顺手点到底下的基地面板。</summary>
+        private int _ignoreInputUntilFrame = -1;
+
         /// <summary>基地里有任何状态变化就标脏，由 <see cref="TickAutoSave"/> 攒一小段再落盘。</summary>
         private const float AutoSaveSeconds = 4f;
 
@@ -194,11 +204,17 @@ namespace BitRunner.Game
             _secureRect = (RectTransform)_secureView.transform;
             _secureTitle = _shell.SecureTitle;
 
-            // 以下四项是基地自己的内容，建在 Screen 层（唯一可换的区域）。
-            BuildRightPanel(_shell.ScreenLayer);
-            BuildDeploy(_shell.ScreenLayer);
-            BuildArtStage(_shell.ScreenLayer);
-            BuildStashPanel(_shell.ScreenLayer);
+            // 以下四项是基地自己的内容。它们挂在一个整屏容器上（而不是直接铺在 ScreenLayer 里），
+            // 这样出征时 SetActive(false) 就能一次收掉，不需要逐块记引用。
+            _baseScreen = CreateCenteredPanel(
+                _shell.ScreenLayer, "Screen_Base", Vector2.zero,
+                ShellRegions.ReferenceResolution, new Color(0f, 0f, 0f, 0f));
+            _baseScreen.GetComponent<Image>().raycastTarget = false;
+
+            BuildRightPanel(_baseScreen);
+            BuildDeploy(_baseScreen);
+            BuildArtStage(_baseScreen);
+            BuildStashPanel(_baseScreen);
 
             BuildDrag();
             BuildTooltip(_shell.TooltipLayer);
@@ -257,6 +273,12 @@ namespace BitRunner.Game
             }
 
             TickAutoSave();
+
+            // 探索揭掉的那一帧：自动存档照跑，鼠标不接——否则结束遮罩上的点击会穿透到基地面板。
+            if (Time.frameCount <= _ignoreInputUntilFrame)
+            {
+                return;
+            }
 
             if (!string.IsNullOrEmpty(_npcLineOverride) && Time.unscaledTime >= _npcLineUntil)
             {
@@ -555,13 +577,56 @@ namespace BitRunner.Game
                 return;
             }
 
-            if (GameSession.BeginExpedition())
-            {
-                SceneManager.LoadScene("ExpeditionPrototype");
-            }
-            else
+            if (!GameSession.BeginExpedition())
             {
                 SetMessage(GameSession.LastMessage);
+                return;
+            }
+
+            // 出征不再换场景：把基地这一屏整块收起来，探索压在外壳上面。
+            // 背包、保险箱、日志、账本一件都不重建——回来时连拖到一半的东西都还在。
+            if (_containerWindows != null)
+            {
+                _containerWindows.CloseAll();
+            }
+
+            SetBaseVisible(false);
+            gameObject.SetActive(false);
+            ExpeditionPrototypeBootstrap.Launch(_shell, OnExpeditionExit);
+        }
+
+        /// <summary>基地这一屏的显隐。探索/战斗压在上面时收起，揭掉后原样恢复。</summary>
+        private void SetBaseVisible(bool visible)
+        {
+            if (_baseScreen != null && _baseScreen.gameObject.activeSelf != visible)
+            {
+                _baseScreen.gameObject.SetActive(visible);
+            }
+        }
+
+        /// <summary>
+        /// 探索回来了。基地一直是活的（只是被收起来），所以这里不用重建，只要把数据刷一遍。
+        /// </summary>
+        private void OnExpeditionExit(ExpeditionPrototypeBootstrap.ExpeditionExit exit)
+        {
+            _ignoreInputUntilFrame = Time.frameCount;
+            gameObject.SetActive(true);
+            SetBaseVisible(true);
+
+            if (_shell != null)
+            {
+                _shell.SetLedgerVisible(true);
+            }
+
+            RefreshAll();
+
+            if (!_campaign.IsActive)
+            {
+                ShowEnd();
+            }
+            else if (exit == ExpeditionPrototypeBootstrap.ExpeditionExit.Defeated)
+            {
+                SetMessage("你倒下了，背包丢在了那里。");
             }
         }
 
