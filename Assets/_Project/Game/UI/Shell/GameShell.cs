@@ -39,6 +39,38 @@ namespace BitRunner.Game
     /// </summary>
     public sealed class GameShell : MonoBehaviour
     {
+        /// <summary>
+        /// 左栏的一行。三种模式共用同一套行布局，所以"生命""能量"在两处必然对齐。
+        ///
+        /// <see cref="Ratio"/> >= 0 时画条（行高 20），&lt; 0 时只画文字（行高 12）。
+        /// </summary>
+        public struct StatusRow
+        {
+            public string Label;
+            public string Value;
+            public float Ratio;
+            public Color BarColor;
+
+            public static StatusRow Bar(string label, string value, float ratio, Color color)
+            {
+                return new StatusRow { Label = label, Value = value, Ratio = ratio, BarColor = color };
+            }
+
+            public static StatusRow Text(string label, string value)
+            {
+                return new StatusRow { Label = label, Value = value, Ratio = -1f };
+            }
+        }
+
+        /// <summary>左栏最多几行。基地 4 行、探索 5 行，留 6 个槽够用且不会重建。</summary>
+        private const int StatusSlotCount = 6;
+
+        /// <summary>日志最多保留几行。150×124 的面板在字号 7 下约放得下 9 行。</summary>
+        private const int MaxLogEntries = 9;
+
+        /// <summary>日志按字符计的容量上限，超出从最旧的开始丢。见 <see cref="AppendLog"/>。</summary>
+        private const int LogCharBudget = 170;
+
         public static GameShell Instance { get; private set; }
 
         // ---------- 容器 ----------
@@ -61,6 +93,8 @@ namespace BitRunner.Game
         public RectTransform DebtFillRect { get; private set; }
 
         public RectTransform StatusRect { get; private set; }
+
+        /// <summary>整块说明文本（结局、违约这类"没有可分解数字"的状态用它占满左栏）。</summary>
         public Text VitalsText { get; private set; }
 
         public RectTransform BenchRect { get; private set; }
@@ -77,6 +111,15 @@ namespace BitRunner.Game
 
         private readonly Dictionary<ShellRegionId, RectTransform> _regions =
             new Dictionary<ShellRegionId, RectTransform>();
+
+        private readonly List<string> _logLines = new List<string>();
+
+        private readonly Text[] _statusLabels = new Text[StatusSlotCount];
+        private readonly Text[] _statusValues = new Text[StatusSlotCount];
+        private readonly Image[] _statusFills = new Image[StatusSlotCount];
+        private readonly RectTransform[] _statusBars = new RectTransform[StatusSlotCount];
+
+        private BagInventory _secureBag;
 
         /// <summary>区域矩形的运行期快照，供验收脚本比对三模式是否一致。</summary>
         public Rect RectOf(ShellRegionId id)
@@ -308,6 +351,8 @@ namespace BitRunner.Game
 
         private void BuildSecure(BagInventory secure, Dictionary<string, Color> palette)
         {
+            _secureBag = secure;
+
             SecureRect = CreateCenteredPanel(
                 RegionLayer,
                 "SecurePanel",
@@ -334,8 +379,8 @@ namespace BitRunner.Game
         }
 
         /// <summary>
-        /// 左栏。本步只把容器提上来，文本内容仍由当前模式写；
-        /// "生命改成 数值+条" 与探索的能量显示一起在 Step 2 合并。
+        /// 左栏：标题 + 最多 6 行。行内容由当前模式通过 <see cref="SetStatus"/> 填，
+        /// 但**行的位置和尺寸是这里的常量**——这是"生命/能量在三种模式下同一坐标"的技术保证。
         /// </summary>
         private void BuildStatus()
         {
@@ -347,15 +392,193 @@ namespace BitRunner.Game
                 UiTheme.PanelColor);
             StatusRect.gameObject.AddComponent<RectMask2D>();
 
+            CreateText(
+                StatusRect,
+                "Title",
+                "状态",
+                UiTheme.FontCaption,
+                UiTheme.MutedColor,
+                new Vector2(4f, -4f),
+                new Vector2(70f, 10f),
+                TextAnchor.UpperLeft);
+
             VitalsText = CreateText(
                 StatusRect,
-                "Stats",
+                "Note",
                 string.Empty,
                 UiTheme.FontSecondary,
                 UiTheme.TextColor,
-                new Vector2(6f, -6f),
-                new Vector2(72f, 104f),
+                new Vector2(4f, -20f),
+                new Vector2(74f, 96f),
                 TextAnchor.UpperLeft);
+
+            for (int i = 0; i < StatusSlotCount; i++)
+            {
+                _statusLabels[i] = CreateText(
+                    StatusRect,
+                    "Row" + i + "Label",
+                    string.Empty,
+                    UiTheme.FontCaption,
+                    UiTheme.MutedColor,
+                    Vector2.zero,
+                    new Vector2(46f, 10f),
+                    TextAnchor.UpperLeft);
+
+                _statusValues[i] = CreateText(
+                    StatusRect,
+                    "Row" + i + "Value",
+                    string.Empty,
+                    UiTheme.FontCaption,
+                    UiTheme.TextColor,
+                    Vector2.zero,
+                    new Vector2(74f, 10f),
+                    TextAnchor.UpperRight);
+
+                _statusFills[i] = CreateBar(
+                    StatusRect,
+                    "Row" + i + "Bar",
+                    Vector2.zero,
+                    new Vector2(70f, 5f),
+                    UiTheme.HpColor);
+                _statusBars[i] = (RectTransform)_statusFills[i].transform.parent;
+
+                _statusLabels[i].gameObject.SetActive(false);
+                _statusValues[i].gameObject.SetActive(false);
+                _statusBars[i].gameObject.SetActive(false);
+            }
+
+            SetStatus("尚未出征");
+        }
+
+        // ---------- 外壳接口：Screen 只能通过这些方法改恒定的七个区域 ----------
+
+        /// <summary>
+        /// 写左栏。<paramref name="note"/> 非空时占满整块（用于结局/违约这类不可分解的状态），
+        /// 此时 <paramref name="rows"/> 全部隐藏。
+        /// </summary>
+        public void SetStatus(string note, params StatusRow[] rows)
+        {
+            bool hasNote = !string.IsNullOrEmpty(note);
+            VitalsText.text = hasNote ? note : string.Empty;
+            VitalsText.gameObject.SetActive(hasNote);
+
+            float y = 16f;
+            for (int i = 0; i < StatusSlotCount; i++)
+            {
+                bool used = !hasNote && rows != null && i < rows.Length;
+                _statusLabels[i].gameObject.SetActive(used);
+                _statusValues[i].gameObject.SetActive(used);
+                _statusBars[i].gameObject.SetActive(used && rows[i].Ratio >= 0f);
+                if (!used)
+                {
+                    continue;
+                }
+
+                StatusRow row = rows[i];
+                _statusLabels[i].text = row.Label;
+                _statusValues[i].text = row.Value;
+                _statusLabels[i].rectTransform.anchoredPosition = new Vector2(4f, -y);
+                _statusValues[i].rectTransform.anchoredPosition = new Vector2(4f, -y);
+
+                if (row.Ratio >= 0f)
+                {
+                    _statusBars[i].anchoredPosition = new Vector2(4f, -(y + 10f));
+                    _statusFills[i].fillAmount = Mathf.Clamp01(row.Ratio);
+                    _statusFills[i].color = row.BarColor;
+                    y += 20f;
+                }
+                else
+                {
+                    y += 13f;
+                }
+            }
+        }
+
+        /// <summary>写 A 区账本（周·天 / 应缴·已缴 / bit / 债务条）。三种模式共用。</summary>
+        public void SetLedger(CampaignState campaign)
+        {
+            if (campaign == null)
+            {
+                return;
+            }
+
+            HudText.text = "第 " + campaign.Week + " 周 · 第 " + campaign.Day + "/7 天"
+                           + "\n应缴 " + campaign.CurrentDue + "   已缴 " + campaign.TotalPaid
+                           + "\nbit " + campaign.Bit;
+
+            HudText.color = campaign.IsActive && campaign.Bit < campaign.CurrentDue
+                ? UiTheme.WarningColor
+                : UiTheme.TextColor;
+
+            float ratio = campaign.CurrentDue <= 0
+                ? 1f
+                : Mathf.Clamp01((float)campaign.Bit / campaign.CurrentDue);
+            DebtFillRect.sizeDelta = new Vector2(150f * ratio, 5f);
+            DebtFillRect.GetComponent<Image>().color = ratio >= 1f
+                ? UiTheme.AccentColor
+                : UiTheme.WarningColor;
+        }
+
+        /// <summary>往 G 区追加一行。跨模式连续——进战斗还能看见探索里最后发生了什么。</summary>
+        public void AppendLog(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+
+            if (_logLines.Count > 0 && _logLines[_logLines.Count - 1] == text)
+            {
+                return;
+            }
+
+            _logLines.Add(text);
+            while (_logLines.Count > MaxLogEntries)
+            {
+                _logLines.RemoveAt(0);
+            }
+
+            // 面板只有 134×98（字号 7 约 170 字），超了会被 RectMask2D 裁掉——
+            // 裁掉的恰好是最新的那几行，所以按字符数从最旧的开始丢，保证新消息一定可见。
+            while (_logLines.Count > 1 && JoinedLogLength() > LogCharBudget)
+            {
+                _logLines.RemoveAt(0);
+            }
+
+            if (LogText != null)
+            {
+                LogText.text = string.Join("\n", _logLines.ToArray());
+            }
+        }
+
+        private int JoinedLogLength()
+        {
+            int total = 0;
+            for (int i = 0; i < _logLines.Count; i++)
+            {
+                total += _logLines[i].Length + 1;
+            }
+
+            return total;
+        }
+
+        /// <summary>重画 F1 / F3 与保险箱标题。Screen 的弹窗里若有第二份 BagView 改了同一份数据，要调这个。</summary>
+        public void RefreshContainers()
+        {
+            if (PackView != null)
+            {
+                PackView.Refresh();
+            }
+
+            if (SecureView != null)
+            {
+                SecureView.Refresh();
+            }
+
+            if (SecureTitle != null && _secureBag != null)
+            {
+                SecureTitle.text = "保险箱 " + _secureBag.Count + "/" + _secureBag.Grid.Capacity;
+            }
         }
 
         private void BuildLog()

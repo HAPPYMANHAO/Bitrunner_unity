@@ -21,27 +21,19 @@ namespace BitRunner.Game
         private Dictionary<string, Color> _palette;
 
         private RectTransform _canvasRect;
+        private GameShell _shell;
         private RectTransform _sellBinRect;
         private Text _titleText;
+        private Text _stageSubtitle;
+        private Text _sideFooter;
         private string _lastZoneId;
         private Text _narrationText;
-        private Text _logText;
         private Text _detailText;
         private Text _selectedLabel;
         private Text _selectedRisk;
         private Text _confirmText;
         private RectTransform _confirmRect;
 
-        private Image _hpFill;
-        private Image _bagFill;
-        private Image _alertFill;
-        private Text _hpValue;
-        private Text _bagValue;
-        private Text _alertValue;
-        private Text _stageValue;
-        private Text _dayValue;
-
-        private readonly List<string> _logLines = new List<string>();
         private ItemCatalog _actionCatalog;
         private ItemCatalog _combinedCatalog;
         private BagInventory _actionBag;
@@ -119,18 +111,19 @@ namespace BitRunner.Game
                 return;
             }
 
-            Canvas canvas = CreateCanvas();
-            _canvasRect = (RectTransform)canvas.transform;
+            // 相机、画布、左栏、账本、背包、保险箱、日志全部来自外壳实例——
+            // 与基地是同一批控件，切模式不重建。
+            _shell = GameShell.Ensure(_bag, _secure, _palette);
+            _canvasRect = _shell.Root;
 
-            BuildNarrative(canvas.transform);
-            BuildStatus(canvas.transform);
-            BuildActions(canvas.transform);
-            BuildSelection(canvas.transform);
+            BuildStage(_shell.Region(ShellRegionId.Stage));
+            BuildSide(_shell.Region(ShellRegionId.Side));
+            BuildPrimary(_shell.Region(ShellRegionId.Primary));
+            BuildDock(_shell.Region(ShellRegionId.Dock));
             BuildActionDrag();
-            BuildLog(canvas.transform);
-            BuildBagOverlay(canvas.transform);
-            BuildLootOverlay(canvas.transform);
-            BuildItemTooltip(canvas.transform);
+            BuildBagOverlay(_shell.OverlayLayer);
+            BuildLootOverlay(_shell.OverlayLayer);
+            BuildItemTooltip(_shell.TooltipLayer);
             BuildContainerWindows();
 
             _titleText.text = _scenario.Title + " · " + _scenario.ZoneName;
@@ -384,6 +377,9 @@ namespace BitRunner.Game
                 _bagSecureTitle.text = "保险箱 " + _secure.Count + "/4";
             }
 
+            // 弹窗里的 BagView 与外壳的 F1/F3 是两份实例，改完数据要通知外壳重画。
+            _shell.RefreshContainers();
+
             if (_containerWindows != null)
             {
                 _containerWindows.RefreshAll();
@@ -397,17 +393,36 @@ namespace BitRunner.Game
                 return;
             }
 
-            _hpValue.text = GameSession.ExpeditionHp + "/" + GameSession.ExpeditionMaxHp;
-            _bagValue.text = _bag.FreeCellCount + " 格";
-            _alertValue.text = _scenario.Alert.ToString();
-            _stageValue.text = _scenario.Stage + "/" + _scenario.StageCount;
-            _dayValue.text = GameSession.Campaign.Day + "/7";
-            _titleText.text = _scenario.Title + " · " + _scenario.ZoneName;
-            AnnounceZoneIfChanged();
+            // A 区账本 + E 区左栏都由外壳持有，探索这边只负责填数。
+            // 这也是探索第一次能看见 bit 与债务条（原先只有基地有）。
+            _shell.SetLedger(GameSession.Campaign);
 
-            SetFill(_hpFill, GameSession.ExpeditionHp / (float)GameSession.ExpeditionMaxHp, HpColor);
-            SetFill(_bagFill, _bag.FreeCellCount / (float)(_bag.Grid.Width * _bag.Grid.Height), BagColor);
-            SetFill(_alertFill, _scenario.Alert / 4f, AlertColor);
+            int maxHp = Mathf.Max(1, GameSession.ExpeditionMaxHp);
+            int hp = GameSession.ExpeditionHp;
+            float hpRatio = Mathf.Clamp01(hp / (float)maxHp);
+            int energy = GameSession.BaseEnergyPerTurn + GameSession.CpuModifiers.BaseEnergy;
+
+            _shell.SetStatus(
+                null,
+                GameShell.StatusRow.Bar("生命", hp + "/" + maxHp, hpRatio, HpBar(hpRatio)),
+                GameShell.StatusRow.Text("能量", energy + "/回合"),
+                GameShell.StatusRow.Bar("警戒", _scenario.Alert.ToString(), _scenario.Alert / 4f, AlertColor),
+                GameShell.StatusRow.Text("阶段", (_scenario.Stage + 1) + "/" + _scenario.StageCount),
+                GameShell.StatusRow.Text("天数", GameSession.Campaign.Day + "/7"));
+
+            _titleText.text = _scenario.Title + " · " + _scenario.ZoneName;
+            if (_stageSubtitle != null)
+            {
+                _stageSubtitle.text = "第 " + (_scenario.Stage + 1) + "/" + _scenario.StageCount
+                                      + " 段 · " + (_scenario.IsComplete ? "可撤离" : "未完成");
+            }
+
+            if (_sideFooter != null)
+            {
+                _sideFooter.text = "可用 " + _scenario.CurrentOptions.Count + " 个行动";
+            }
+
+            AnnounceZoneIfChanged();
         }
 
         /// <summary>换区域时把新地点的名字和一句环境描述写进记录，避免玩家不知道自己在哪。</summary>
@@ -424,19 +439,6 @@ namespace BitRunner.Game
             {
                 AppendLog("【" + _scenario.ZoneName + "】" + _scenario.ZoneBlurb);
             }
-        }
-
-        private static void SetFill(Image fill, float ratio, Color color)
-        {
-            if (fill == null)
-            {
-                return;
-            }
-
-            RectTransform rect = (RectTransform)fill.transform;
-            float max = rect.parent != null ? ((RectTransform)rect.parent).sizeDelta.x - 8f : 52f;
-            rect.sizeDelta = new Vector2(Mathf.Clamp01(ratio) * max, rect.sizeDelta.y);
-            fill.color = color;
         }
 
         private void RebuildActionBags()
@@ -660,9 +662,9 @@ namespace BitRunner.Game
                     _detailText.text = selection.Reason;
                 }
 
-                _confirmText.text = "确认";
+                _confirmText.text = "执行";
                 _confirmText.color = MutedColor;
-                _confirmRect.GetComponent<Image>().color = ConfirmColor;
+                _confirmRect.GetComponent<Image>().color = DisabledColor;
                 return;
             }
 
@@ -674,9 +676,9 @@ namespace BitRunner.Game
                 _selectedRisk.text = "风险：" + ExpeditionText.RiskName(action.Risk);
                 _selectedRisk.color = RiskColor(action.Risk);
                 _detailText.text = BuildOutcomePreview(action, selection);
-                _confirmText.text = action.IsExit ? "确认撤离" : "确认行动";
+                _confirmText.text = action.IsExit ? "撤离" : "执行";
                 _confirmText.color = TextColor;
-                _confirmRect.GetComponent<Image>().color = ConfirmReadyColor;
+                _confirmRect.GetComponent<Image>().color = AccentColor;
                 return;
             }
 
@@ -690,9 +692,9 @@ namespace BitRunner.Game
                 _detailText.text = "使用 " + definition.DisplayName + "。\n"
                                    + "推进 1 个探索阶段并消耗该物品。\n"
                                    + "辅助标志不生效。";
-                _confirmText.text = "确认使用";
+                _confirmText.text = "使用";
                 _confirmText.color = TextColor;
-                _confirmRect.GetComponent<Image>().color = ConfirmReadyColor;
+                _confirmRect.GetComponent<Image>().color = AccentColor;
                 return;
             }
         }
@@ -1127,127 +1129,154 @@ namespace BitRunner.Game
             return string.Join(" / ", kinds.ToArray());
         }
 
-        private void BuildNarrative(Transform canvas)
+        /// <summary>
+        /// C 舞台。上半是地点与叙事，下半是"已选行动"——一块 4×3 的拖放袋 + 名称/风险/辅助。
+        /// 这个分区在基地是"立绘 + 台词"，同一个位置换内容，不改位置。
+        /// </summary>
+        private void BuildStage(RectTransform region)
         {
-            RectTransform panel = CreateCenteredPanel(canvas, "Narrative", new Vector2(25f, 128f), new Vector2(510f, 64f), PanelColor);
-            _titleText = CreateText(panel, "Title", string.Empty, 11, TextColor, new Vector2(10f, -8f), new Vector2(490f, 14f), TextAnchor.UpperLeft);
-            _narrationText = CreateText(panel, "Body", string.Empty, 9, MutedColor, new Vector2(10f, -26f), new Vector2(490f, 32f), TextAnchor.UpperLeft);
+            Rect stage = ShellRegions.Stage;
+            RectTransform panel = CreateCenteredPanel(region, "StagePanel", Vector2.zero, ShellRegions.SizeOf(stage), WindowColor);
+            AddBorder(panel, new Color32(67, 59, 47, 255));
+            panel.GetComponent<Image>().raycastTarget = false;
+            panel.gameObject.AddComponent<RectMask2D>();
+
+            _titleText = CreateText(
+                panel, "Title", string.Empty, FontTitle, TextColor,
+                new Vector2(10f, -8f), new Vector2(250f, 14f), TextAnchor.UpperLeft);
+
+            _stageSubtitle = CreateText(
+                panel, "Subtitle", string.Empty, FontCaption, MutedColor,
+                new Vector2(10f, -24f), new Vector2(250f, 10f), TextAnchor.UpperLeft);
+
+            _narrationText = CreateText(
+                panel, "Body", string.Empty, FontBody, MutedColor,
+                new Vector2(10f, -38f), new Vector2(250f, 62f), TextAnchor.UpperLeft);
             _narrationText.verticalOverflow = VerticalWrapMode.Truncate;
-        }
 
-        private void BuildStatus(Transform canvas)
-        {
-            RectTransform panel = CreateCenteredPanel(canvas, "Status", new Vector2(-288f, 18f), new Vector2(64f, 242f), PanelColor);
-            CreateText(panel, "Title", "状态", 9, TextColor, new Vector2(8f, -7f), new Vector2(48f, 12f), TextAnchor.UpperLeft);
+            RectTransform divider = CreateAnchoredPanel(
+                panel, "Divider", new Vector2(10f, -104f), new Vector2(250f, 1f), new Color32(50, 58, 68, 255));
+            divider.GetComponent<Image>().raycastTarget = false;
 
-            _hpValue = AddStatusRow(panel, "生命", -26f, HpColor, out _hpFill);
-            _bagValue = AddStatusRow(panel, "背包", -72f, BagColor, out _bagFill);
-            _alertValue = AddStatusRow(panel, "警戒", -118f, AlertColor, out _alertFill);
-            _stageValue = AddStatusValue(panel, "阶段", -164f);
-            _dayValue = AddStatusValue(panel, "天数", -202f);
-        }
+            CreateText(
+                panel, "SelectedTitle", "已选行动", FontCaption, MutedColor,
+                new Vector2(10f, -108f), new Vector2(120f, 10f), TextAnchor.UpperLeft);
 
-        private Text AddStatusRow(RectTransform panel, string label, float top, Color color, out Image fill)
-        {
-            CreateText(panel, label, label, 8, MutedColor, new Vector2(7f, top), new Vector2(50f, 10f), TextAnchor.UpperLeft);
-            fill = CreateFill(panel, new Vector2(7f, top - 14f), new Vector2(50f, 4f), color);
-            return CreateText(panel, label + "Value", string.Empty, 7, color, new Vector2(7f, top - 22f), new Vector2(50f, 10f), TextAnchor.UpperLeft);
-        }
-
-        private Text AddStatusValue(RectTransform panel, string label, float top)
-        {
-            CreateText(panel, label, label, 8, MutedColor, new Vector2(7f, top), new Vector2(50f, 10f), TextAnchor.UpperLeft);
-            return CreateText(panel, label + "Value", string.Empty, 8, TextColor, new Vector2(7f, top - 13f), new Vector2(50f, 10f), TextAnchor.UpperLeft);
-        }
-
-        private Image CreateFill(RectTransform parent, Vector2 topLeft, Vector2 size, Color color)
-        {
-            var go = new GameObject("Fill", typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(parent, false);
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = topLeft;
-            rect.sizeDelta = size;
-
-            var background = new GameObject("Track", typeof(RectTransform), typeof(Image));
-            background.transform.SetParent(parent, false);
-            var bg = (RectTransform)background.transform;
-            bg.SetSiblingIndex(go.transform.GetSiblingIndex());
-            bg.anchorMin = new Vector2(0f, 1f);
-            bg.anchorMax = new Vector2(0f, 1f);
-            bg.pivot = new Vector2(0f, 1f);
-            bg.anchoredPosition = new Vector2(topLeft.x - 1f, topLeft.y + 1f);
-            bg.sizeDelta = new Vector2(size.x + 2f, size.y + 2f);
-            background.GetComponent<Image>().color = new Color32(11, 13, 17, 255);
-
-            go.transform.SetAsLastSibling();
-            Image image = go.GetComponent<Image>();
-            image.color = color;
-            return image;
-        }
-
-        private void BuildActions(Transform canvas)
-        {
-            RectTransform panel = CreateCenteredPanel(canvas, "Actions", new Vector2(-90f, 25f), new Vector2(240f, 200f), PanelColor);
-            CreateText(panel, "Title", "可选行动", 10, TextColor, new Vector2(10f, -7f), new Vector2(150f, 14f), TextAnchor.UpperLeft);
-            CreateText(panel, "Hint", "拖动 / 双击 / Shift+左键", 8, MutedColor, new Vector2(10f, -22f), new Vector2(150f, 10f), TextAnchor.UpperLeft);
-
-            _actionBag = new BagInventory(6, 4);
-            _actionBagRect = CreateBagRect(panel, new Vector2(0f, -10f), new Vector2(6f * BagView.CellSize, 4f * BagView.CellSize));
-            _actionView = _actionBagRect.gameObject.AddComponent<BagView>();
-            _actionView.Initialize(_actionBag, _actionBagRect, _actionPalette, _combinedCatalog);
-
-            _playerActionBagRect = CreateBagRect(panel, new Vector2(0f, -10f), new Vector2(6f * BagView.CellSize, 5f * BagView.CellSize));
-            _playerActionView = _playerActionBagRect.gameObject.AddComponent<BagView>();
-            _playerActionView.Initialize(_bag, _playerActionBagRect, _actionPalette, _combinedCatalog);
-            _playerActionView.ItemEnabledPredicate = IsExpeditionUsableItem;
-            _playerActionView.gameObject.SetActive(false);
-
-            _tabActionRect = CreateCenteredPanel(panel, "TabAction", new Vector2(-70f, -106f), new Vector2(58f, 18f), SelectedColor);
-            CreateCenteredText(_tabActionRect, "Label", "行动", 8, TextColor, Vector2.zero, new Vector2(54f, 16f));
-            _tabBagRect = CreateCenteredPanel(panel, "TabBag", new Vector2(-8f, -106f), new Vector2(58f, 18f), new Color32(42, 48, 57, 255));
-            CreateCenteredText(_tabBagRect, "Label", "背包", 8, MutedColor, Vector2.zero, new Vector2(54f, 16f));
-        }
-
-        private void BuildSelection(Transform canvas)
-        {
-            RectTransform selected = CreateCenteredPanel(canvas, "Selected", new Vector2(125f, 42f), new Vector2(184f, 150f), PanelColor);
-            CreateCenteredText(selected, "Title", "已选行动", 9, TextColor, new Vector2(0f, 63f), new Vector2(168f, 12f));
-
+            Vector2 chipSize = new Vector2(4f * BagView.CellSize, 3f * BagView.CellSize);
             _selectedActionBag = new BagInventory(4, 3);
-            _selectedActionBagRect = CreateBagRect(selected, new Vector2(-54f, 18f), new Vector2(4f * BagView.CellSize, 3f * BagView.CellSize));
+            _selectedActionBagRect = CreateBagRect(
+                panel,
+                ShellRegions.LocalIn(stage, 10f, 120f, chipSize.x, chipSize.y),
+                chipSize);
             _selectedActionView = _selectedActionBagRect.gameObject.AddComponent<BagView>();
             _selectedActionView.Initialize(_selectedActionBag, _selectedActionBagRect, _actionPalette, _combinedCatalog);
             _selectedActionView.ItemEnabledPredicate = IsExpeditionUsableItem;
 
-            _selectedLabel = CreateText(selected, "Label", "拖入一个行动", 9, MutedColor, new Vector2(68f, -20f), new Vector2(108f, 12f), TextAnchor.UpperLeft);
-            _selectedRisk = CreateText(selected, "Risk", string.Empty, 7, MutedColor, new Vector2(68f, -34f), new Vector2(108f, 10f), TextAnchor.UpperLeft);
-            _assistHint = CreateText(selected, "AssistHint", "辅助 0/3", 7, MutedColor, new Vector2(68f, -46f), new Vector2(108f, 10f), TextAnchor.UpperLeft);
+            _selectedLabel = CreateText(
+                panel, "SelectedLabel", "拖入一个行动", FontBody, MutedColor,
+                new Vector2(80f, -120f), new Vector2(180f, 12f), TextAnchor.UpperLeft);
+
+            _selectedRisk = CreateText(
+                panel, "SelectedRisk", string.Empty, FontCaption, MutedColor,
+                new Vector2(80f, -134f), new Vector2(180f, 10f), TextAnchor.UpperLeft);
+
+            _assistHint = CreateText(
+                panel, "AssistHint", "辅助 0/3", FontCaption, MutedColor,
+                new Vector2(80f, -146f), new Vector2(110f, 10f), TextAnchor.UpperLeft);
 
             for (int i = 0; i < 3; i++)
             {
-                RectTransform chip = CreateCenteredPanel(selected, "Assist" + i, new Vector2(-54f + i * 20f, -20f), new Vector2(16f, 16f), new Color32(42, 48, 57, 255));
+                RectTransform chip = CreateCenteredPanel(
+                    panel,
+                    "Assist" + i,
+                    ShellRegions.LocalIn(stage, 196f + i * 20f, 144f, 16f, 16f),
+                    new Vector2(16f, 16f),
+                    new Color32(42, 48, 57, 255));
                 Text chipText = CreateCenteredText(chip, "Label", string.Empty, 6, TextColor, Vector2.zero, new Vector2(16f, 16f));
                 chip.gameObject.SetActive(false);
                 _assistChipRects.Add(chip);
                 _assistChipTexts.Add(chipText);
             }
+        }
 
-            _confirmRect = CreateCenteredPanel(selected, "Confirm", new Vector2(0f, -58f), new Vector2(150f, 22f), ConfirmColor);
-            _confirmText = CreateCenteredText(_confirmRect, "Label", "确认", 8, MutedColor, Vector2.zero, new Vector2(146f, 20f));
+        /// <summary>B 主行动条：整个区域就是一个按钮。位置、尺寸、字号与基地的「出征」逐像素相同。</summary>
+        private void BuildPrimary(RectTransform region)
+        {
+            _confirmRect = CreateCenteredPanel(
+                region, "Execute", Vector2.zero, ShellRegions.SizeOf(ShellRegions.PrimaryAction), AccentColor);
+            AddBorder(_confirmRect, new Color32(96, 142, 186, 255));
+            _confirmText = CreateCenteredText(
+                _confirmRect, "Label", "执行", FontTitle, MutedColor, Vector2.zero, new Vector2(156f, 26f));
+        }
 
-            RectTransform detail = CreateCenteredPanel(canvas, "Detail", new Vector2(125f, -94f), new Vector2(184f, 112f), PanelColor);
-            CreateText(detail, "Title", "结果预估", 9, TextColor, new Vector2(8f, -7f), new Vector2(168f, 12f), TextAnchor.UpperLeft);
-            _detailText = CreateText(detail, "Body", string.Empty, 8, MutedColor, new Vector2(8f, -24f), new Vector2(168f, 84f), TextAnchor.UpperLeft);
+        /// <summary>
+        /// D 侧栏：页签行（y 与基地完全相同）+ 行动袋 6×4。行动/背包两个页签直接复用原来那套拖放源切换。
+        /// </summary>
+        private void BuildSide(RectTransform region)
+        {
+            Rect side = ShellRegions.Side;
+            Rect content = ShellRegions.SideContent;
+
+            // 与基地 RightPanel 同一块底板：同色、同描边、同裁剪。
+            RectTransform panel = CreateCenteredPanel(
+                region, "SidePanel", Vector2.zero, ShellRegions.SizeOf(side), PanelColor);
+            AddBorder(panel, new Color32(67, 59, 47, 255));
+            panel.gameObject.AddComponent<RectMask2D>();
+
+            _tabActionRect = CreateAnchoredPanel(panel, "TabAction", new Vector2(4f, -2f), new Vector2(82f, 18f), SelectedColor);
+            CreateCenteredText(_tabActionRect, "Label", "行动", FontCaption, TextColor, Vector2.zero, new Vector2(80f, 16f));
+
+            _tabBagRect = CreateAnchoredPanel(panel, "TabBag", new Vector2(88f, -2f), new Vector2(82f, 18f), new Color32(38, 44, 52, 255));
+            CreateCenteredText(_tabBagRect, "Label", "背包", FontCaption, MutedColor, Vector2.zero, new Vector2(80f, 16f));
+
+            RectTransform body = CreateAnchoredRect(
+                panel, "Content", new Vector2(0f, -(content.y - side.y)), ShellRegions.SizeOf(content));
+
+            CreateText(
+                body, "Hint", "拖动 / 双击 / Shift+左键", FontCaption, MutedColor,
+                new Vector2(4f, -4f), new Vector2(162f, 10f), TextAnchor.UpperLeft);
+
+            Vector2 actionSize = new Vector2(6f * BagView.CellSize, 4f * BagView.CellSize);
+            _actionBag = new BagInventory(6, 4);
+            _actionBagRect = CreateBagRect(body, ShellRegions.LocalIn(content, 37f, 32f, actionSize.x, actionSize.y), actionSize);
+            _actionView = _actionBagRect.gameObject.AddComponent<BagView>();
+            _actionView.Initialize(_actionBag, _actionBagRect, _actionPalette, _combinedCatalog);
+
+            Vector2 bagSize = new Vector2(6f * BagView.CellSize, 5f * BagView.CellSize);
+            _playerActionBagRect = CreateBagRect(body, ShellRegions.LocalIn(content, 37f, 24f, bagSize.x, bagSize.y), bagSize);
+            _playerActionView = _playerActionBagRect.gameObject.AddComponent<BagView>();
+            _playerActionView.Initialize(_bag, _playerActionBagRect, _actionPalette, _combinedCatalog);
+            _playerActionView.ItemEnabledPredicate = IsExpeditionUsableItem;
+            _playerActionView.gameObject.SetActive(false);
+
+            _sideFooter = CreateText(
+                body, "Footer", string.Empty, FontCaption, MutedColor,
+                new Vector2(4f, -106f), new Vector2(162f, 10f), TextAnchor.UpperLeft);
+
+            RefreshTabs();
+        }
+
+        /// <summary>F2 中段大板：结果预估。基地这里是仓库，尺寸完全相同（184×124）。</summary>
+        private void BuildDock(RectTransform region)
+        {
+            RectTransform panel = CreateCenteredPanel(
+                region, "Estimate", Vector2.zero, ShellRegions.SizeOf(ShellRegions.BenchMid), PanelColor);
+            panel.gameObject.AddComponent<RectMask2D>();
+
+            CreateText(
+                panel, "Title", "结果预估", FontPanelTitle, TextColor,
+                new Vector2(8f, -6f), new Vector2(168f, 12f), TextAnchor.UpperLeft);
+
+            _detailText = CreateText(
+                panel, "Body", string.Empty, FontSecondary, MutedColor,
+                new Vector2(8f, -24f), new Vector2(168f, 94f), TextAnchor.UpperLeft);
             _detailText.verticalOverflow = VerticalWrapMode.Truncate;
         }
 
         private void BuildContainerWindows()
         {
             _containerWindows = gameObject.AddComponent<FloatingWindowManager>();
-            _containerWindows.Initialize(_canvasRect, _catalog, _palette);
+            _containerWindows.Initialize(_shell.OverlayLayer, _catalog, _palette);
             _containerWindows.AttachDrag(_actionDrag);
             _containerWindows.AttachDrag(_bagDrag);
             _actionDrag.TryActivateItem = (source, instanceId) =>
@@ -1269,7 +1298,7 @@ namespace BitRunner.Game
                 null,
                 GameSession.Campaign,
                 _actionPalette,
-                _canvasRect,
+                _shell.DragLayer,
                 null,
                 null);
             _actionDrag.Changed += OnActionBagChanged;
@@ -1277,13 +1306,6 @@ namespace BitRunner.Game
             _actionDrag.TrySpecialDrop = TryAssistDrop;
             _actionDrag.Message += SetNarration;
             _actionDrag.QuickMoveTarget = ActionQuickMoveTarget;
-        }
-
-        private void BuildLog(Transform canvas)
-        {            RectTransform panel = CreateCenteredPanel(canvas, "Log", new Vector2(-125f, -148f), new Vector2(350f, 44f), new Color32(9, 12, 16, 255));
-            _logText = CreateText(panel, "Lines", string.Empty, 8, LogColor, new Vector2(8f, -5f), new Vector2(334f, 36f), TextAnchor.UpperLeft);
-            _logText.verticalOverflow = VerticalWrapMode.Truncate;
-            CreateCenteredText(canvas, "Help", "拖动行动 · 空格确认 · B 背包 · O 设置", 7, MutedColor, new Vector2(155f, -170f), new Vector2(240f, 10f));
         }
 
         private void BuildBagOverlay(Transform canvas)
@@ -1330,7 +1352,7 @@ namespace BitRunner.Game
             };
 
             _bagDrag = _bagOverlay.AddComponent<BaseDragInteraction>();
-            _bagDrag.Initialize(sources, _catalog, GameSession.Merchant, GameSession.Campaign, _palette, _canvasRect, _sellBinRect, _bagDiscardRect);
+            _bagDrag.Initialize(sources, _catalog, GameSession.Merchant, GameSession.Campaign, _palette, _shell.DragLayer, _sellBinRect, _bagDiscardRect);
             _bagDrag.ItemUsed += OnUseItem;
             _bagDrag.Changed += OnBagChanged;
             _bagDrag.Message += SetNarration;
@@ -1559,6 +1581,8 @@ namespace BitRunner.Game
             {
                 _bagSecureTitle.text = "保险箱 " + _secure.Count + "/4";
             }
+
+            _shell.RefreshContainers();
         }
 
         private void OnUseItem(int instanceId)
@@ -1862,28 +1886,8 @@ namespace BitRunner.Game
 
         private void AppendLog(string text)
         {
-            if (string.IsNullOrEmpty(text))
-            {
-                return;
-            }
-
-            _logLines.Add(text);
-            while (_logLines.Count > 3)
-            {
-                _logLines.RemoveAt(0);
-            }
-
-            var builder = new StringBuilder();
-            for (int i = 0; i < _logLines.Count; i++)
-            {
-                builder.Append("> ").Append(_logLines[i]);
-                if (i < _logLines.Count - 1)
-                {
-                    builder.Append('\n');
-                }
-            }
-
-            _logText.text = builder.ToString();
+            // 日志归外壳持有：与基地同一块面板、同一份内容，切模式连续。
+            _shell.AppendLog(text);
         }
 
         private static bool IsPointerOver(RectTransform rect)
@@ -1907,35 +1911,6 @@ namespace BitRunner.Game
                 default:
                     return DangerColor;
             }
-        }
-
-        private Canvas CreateCanvas()
-        {
-            if (Camera.main == null)
-            {
-                var cameraGo = new GameObject("Main Camera", typeof(Camera));
-                cameraGo.tag = "MainCamera";
-                Camera camera = cameraGo.GetComponent<Camera>();
-                camera.clearFlags = CameraClearFlags.SolidColor;
-                camera.backgroundColor = BackgroundColor;
-                camera.orthographic = true;
-            }
-
-            var go = new GameObject("ExpeditionCanvas", typeof(Canvas), typeof(CanvasScaler));
-            var canvas = go.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-
-            var scaler = go.GetComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(640f, 360f);
-            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
-            scaler.matchWidthOrHeight = 0.5f;
-
-            RectTransform background = CreateCenteredPanel(canvas.transform, "Background", Vector2.zero, new Vector2(640f, 360f), BackgroundColor);
-            background.GetComponent<Image>().raycastTarget = false;
-            BackgroundArt.Apply(background);
-
-            return canvas;
         }
 
         private static Dictionary<string, Color> BuildActionPalette(ItemCatalog catalog)

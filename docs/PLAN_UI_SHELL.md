@@ -424,20 +424,30 @@ Assets/_Project/Game/UI/
 
 ## 10. 验收清单
 
-- [ ] 基地改造前后截图逐像素一致（除左栏）
-- [ ] 七区 `rect` 在三模式下打印值完全相同
+Step 1/2 已过的项：
+
+- [x] 七区 `rect` 在基地与探索下打印值完全相同（同一次 Play 实测）
+- [x] 左栏「生命」「能量」在两模式下 `anchoredPosition` 一字不差（`16 / 36`）
+- [x] 探索界面显示能量（原先缺失）
+- [x] 探索界面显示 bit 与债务条（原先缺失）
+- [x] 基地左栏生命显示 `当前/上限` + 条（原先只有上限、无条）
+- [x] A 账本 / F1 背包 / F3 保险箱在 base 与 expedition 之间**逐像素 0 差**
+- [ ] 基地改造前后截图逐像素一致（除左栏）——基线截图受"旧帧"问题污染，改为结构比对：
+      基地 ScreenLayer 的四个面板与四个区域容器 pos/size 逐项相同
+
+仍待 Step 3/4：
+
 - [ ] **F1 背包的 `BagView` 实例在三模式下是同一个对象**（`GetInstanceID()` 相同）
 - [ ] 拖物品到一半切模式，物品仍在光标下
 - [ ] 进入战斗后 G 日志里能看到探索的最后一条，位置没动
-- [ ] 左栏「生命」「能量」在三种模式下 `anchoredPosition` 一字不差
-- [ ] 生命条三档颜色正确（绿 / 琥珀 / 红），敌人条恒红
-- [ ] 探索界面显示能量（现状缺失）
-- [ ] 探索与战斗界面显示 bit 与债务条（现状缺失）
-- [ ] 基地左栏生命显示 `当前/上限`（现状只有上限）
-- [ ] `grep -r "static readonly Color" Assets/_Project/Game/UI` 只在 `UiTheme.cs`
-- [ ] `grep -c "CreateCenteredPanel" Assets/_Project/Game/UI` 只有 1 处定义
+- [ ] 生命条三档颜色正确（绿 / 琥珀 / 红），敌人条恒红（敌方暂无界面）
 - [ ] 战斗结束回探索，C/D/F2 重建但 F1 不重建、无闪烁
 - [ ] D 区点击敌人行切换焦点，C 区换卡、F2 换背包，三处同步
+- [ ] `grep -r "static readonly Color" Assets/_Project/Game/UI` 只在 `UiTheme.cs`（还剩 4 个非三模式文件）
+- [x] `grep -c "CreateCenteredPanel" Assets/_Project/Game/UI` 只有 1 处定义
+
+> 前 4 项要等 Step 3 把战斗改成 `Push/Pop`（不再 `LoadScene`）才可能通过——
+> 只要还走场景切换，`GameShell` 就会随场景重建，`InstanceID` 必然变化。
 
 ---
 
@@ -471,3 +481,75 @@ Assets/_Project/Game/UI/
 
 仓库中仍有 4 个文件带自己的颜色常量（`MainMenuBootstrap` 7、`SettingsOverlay` 7、`BagPrototypeBootstrap` 5、`BaseDragInteraction` 2）。
 它们不属于"三模式一致性"问题（标题页与设置面板是独立屏幕），留到 Step 4 一并收。其中 `BagPrototypeBootstrap` 已确认**无任何场景引用**，是孤立脚本，届时可直接删。
+
+### Step 1（已完成，commit a806598）
+
+- 新增 `UI/Shell/GameShell.cs`：持有相机 + 画布（640×360 Expand）+ 七层容器
+  （Background / Region / Screen / Drag / Tooltip / Overlay / End）+ 四个 Screen 可建区容器
+  （`Region(ShellRegionId)`）+ 外壳控件（账本 HUD、左栏、工作台底板、**F1 背包 `BagView`**、
+  **F3 保险箱 `BagView`**、日志）。
+- 基地侧删掉 `BuildHud` / `BuildLeftStats` / `BuildLog` / `CreateCanvas`，`BuildBagPanels` 缩成 `BuildStashPanel`
+  （只剩随模式变的 F2）；拖拽/提示/浮窗/结算分别挂到对应层。
+- 真机验收：Unity 控制台 0 error / 0 warning；七个区域 pos/size 与改造前逐项相同；
+  整帧 1366×768 比对 before vs after = **1305 px / 0.1244%**，全部集中在 `x[242..246]` 一条 5px 竖条
+  （插入图层容器后 `RectMask2D` 裁剪边界的亚像素取整），非布局/功能变化。
+
+### Step 2（已完成）
+
+**外壳新增接口**（`GameShell`）：
+
+| 接口 | 作用 |
+|---|---|
+| `SetStatus(note, params StatusRow[])` | 写 E 区左栏。行位置/尺寸是外壳常量，所以"生命""能量"在三模式下同一坐标 |
+| `SetLedger(CampaignState)` | 写 A 区账本（周·天 / 应缴·已缴 / bit / 债务条），三模式共用 |
+| `AppendLog(string)` | 往 G 区追加；按行数（9）与字符数（170）双上限，超了从最旧的丢，保证新消息不被裁掉 |
+| `RefreshContainers()` | 重画 F1/F3 与保险箱标题（弹窗里若有第二份 `BagView` 改了同一份数据，要调这个） |
+| `ShellRegions.LocalIn(...)` | 区域容器内"局部矩形 → 居中偏移"的换算，Screen 用它在洞内布局 |
+
+**左栏统一后的内容**（`StatusRow.Bar` / `StatusRow.Text` 两种行，行距 20 / 13）：
+
+| 模式 | 行 |
+|---|---|
+| 基地 | 生命 `当前/上限` + 条、能量 `N/回合`、背包 `N 格`、仓库 `N 格` |
+| 探索 | 生命 + 条、能量 `N/回合`、警戒 + 条、阶段 `N/M`、天数 `N/7` |
+| 结局/违约 | 整块说明文本（`note` 非空时占满左栏） |
+
+> **能量没有条**，因为它不是资源池而是"每回合可用量"（`BaseEnergyPerTurn + CpuModifiers.BaseEnergy`），
+> 没有分母。计划 §4.1 写的 `3/5` 是当时的假设，实际实现改成 `3/回合`——比画一条永远满的条诚实。
+
+**探索侧改动**：
+
+- `BuildNarrative` / `BuildStatus` / `BuildActions` / `BuildSelection` / `BuildLog` / `CreateCanvas` 六处删除，
+  改为 `BuildStage(Region(Stage))` / `BuildSide(Region(Side))` / `BuildPrimary(Region(Primary))` /
+  `BuildDock(Region(Dock))` 四处。
+- 探索的弹窗（背包、战利品、物品提示、浮窗）分别挂到 `OverlayLayer` / `TooltipLayer`；
+  两个 `BaseDragInteraction` 的 ghost 父物体改为 `DragLayer`。
+- 「确认」按钮从 C 舞台内挪到 B 主行动条（`455,14,160,28`），与基地「出征」同位置、同尺寸、同字号（11）、
+  同 `AccentColor` + 同描边；未选行动时 `DisabledColor`。文案从「确认行动 / 确认撤离 / 确认使用」缩成
+  「执行 / 撤离 / 使用」——按钮变宽了，长文案不需要了。
+
+**探索实测几何**（640×360，全部由 `ShellRegions.LocalIn` 算出，运行期回读一致）：
+
+| 洞 | 元素 | 屏幕矩形 |
+|---|---|---|
+| C 舞台 | 地点名 / 副标题 / 叙事 / 分隔线 | `(195,53,250,14)` / `(195,69,250,10)` / `(195,83,250,62)` / `(195,149,250,1)` |
+| C 舞台 | 已选行动袋 4×3 / 名称 / 风险 / 辅助 | `(195,165,64,48)` / `(265,165,180,12)` / `(265,179,180,10)` / `(265,191,110,10)` + 3×16×16 |
+| D 侧栏 | 页签行（与基地同 y） | `(469,57,82,18)` `(553,57,82,18)` |
+| D 侧栏 | 提示 / 行动袋 6×4 / 底部 | `(469,81,162,10)` / `(502,109,96,64)` / `(469,183,162,10)` |
+| F2 | 结果预估 标题 / 正文 | `(217,232,168,12)` / `(217,250,168,94)` |
+| B | 执行 | `(455,14,160,28)` |
+
+**这次"看起来是一个场景"的硬证据**（同一台机器、同一次 Play、base vs expedition 逐像素）：
+
+| 区域 | 差异像素 | 结论 |
+|---|---|---|
+| **A 账本** | **0 / 56834（0.000%）** | 像素级相同 |
+| **F1 背包** | **0 / 61776（0.000%）** | 像素级相同（同一份数据、同一个位置） |
+| **F3 保险箱** | **0 / 28998（0.000%）** | 像素级相同（含「保险箱 1/4」标题） |
+| E 状态左栏 | 4097 / 47256（8.7%） | 预期差异（探索多两行） |
+| F 工作台带 | 33.0% | 预期差异（F2 仓库↔结果预估） |
+
+**踩坑**：`ScreenCapture.CaptureScreenshotAsTexture()` 在持续运行的 Play 会话里会返回旧帧（甚至出现"半新半旧"的拼接）
+——本轮因此白查了一轮"左栏坐标对不上"。**可靠做法是文件式** `ScreenCapture.CaptureScreenshot(path)`
+（帧末落盘，隔一次工具调用再读文件），或每次 `Play` 后的首张。另外 `GetPixels32()` 是**自下而上**的行序，
+按 yTop 取区域必须换算 `row = (h-1-yTop)*w`，否则量到的完全不是你以为的那块地方。

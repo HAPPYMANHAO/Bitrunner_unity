@@ -45,12 +45,6 @@ namespace BitRunner.Game
 
         private RectTransform _canvasRect;
         private GameShell _shell;
-        private Text _hudText;
-        private Text _statsText;
-        private RectTransform _progressFill;
-        private Text _logText;
-        private readonly List<string> _logEntries = new List<string>();
-        private const int MaxLogEntries = 5;
 
         // 中央艺术台：立绘位 + 台词。NPC 接通后这里换人，属性数字全部挪到背包左侧。
         private RectTransform _artStage;
@@ -194,10 +188,6 @@ namespace BitRunner.Game
             _shell = GameShell.Ensure(_bag, _secure, _palette);
             _canvasRect = _shell.Root;
 
-            _hudText = _shell.HudText;
-            _progressFill = _shell.DebtFillRect;
-            _statsText = _shell.VitalsText;
-            _logText = _shell.LogText;
             _bagView = _shell.PackView;
             _bagRect = (RectTransform)_bagView.transform;
             _secureView = _shell.SecureView;
@@ -984,43 +974,33 @@ namespace BitRunner.Game
 
         private void RefreshHud()
         {
-            _hudText.text = "第 " + _campaign.Week + " 周 · 第 " + _campaign.Day + "/7 天"
-                            + "\n应缴 " + _campaign.CurrentDue + "   已缴 " + _campaign.TotalPaid
-                            + "\nbit " + _campaign.Bit;
+            _shell.SetLedger(_campaign);
 
-            _hudText.color = _campaign.IsActive && _campaign.Bit < _campaign.CurrentDue
-                ? WarningColor
-                : TextColor;
-
-            if (_statsText != null)
+            if (_campaign.IsActive)
             {
-                if (_campaign.IsActive)
-                {
-                    _statsText.text = "生命 " + GameSession.ExpeditionMaxHp
-                                      + "\n背包 " + _bag.FreeCellCount + " 格"
-                                      + "\n仓库 " + _stash.FreeCellCount + " 格"
-                                      + "\n能量 " + (GameSession.BaseEnergyPerTurn + GameSession.CpuModifiers.BaseEnergy);
-                }
-                else
-                {
-                    _statsText.text = _campaign.Status == CampaignStatus.Victory
-                        ? EndingLabel(_campaign.Ending)
-                        : "债务违约";
-                }
+                int maxHp = Mathf.Max(1, GameSession.ExpeditionMaxHp);
+                // ExpeditionHp 在没下过潜时是 0，直接显示会像是"已经死了"，按满血处理。
+                int hp = GameSession.ExpeditionHp > 0 ? GameSession.ExpeditionHp : maxHp;
+                float hpRatio = Mathf.Clamp01(hp / (float)maxHp);
+                int energy = GameSession.BaseEnergyPerTurn + GameSession.CpuModifiers.BaseEnergy;
+
+                _shell.SetStatus(
+                    null,
+                    GameShell.StatusRow.Bar("生命", hp + "/" + maxHp, hpRatio, UiTheme.HpBar(hpRatio)),
+                    GameShell.StatusRow.Text("能量", energy + "/回合"),
+                    GameShell.StatusRow.Text("背包", _bag.FreeCellCount + " 格"),
+                    GameShell.StatusRow.Text("仓库", _stash.FreeCellCount + " 格"));
+            }
+            else
+            {
+                _shell.SetStatus(_campaign.Status == CampaignStatus.Victory
+                    ? EndingLabel(_campaign.Ending)
+                    : "债务违约");
             }
 
             if (_secureTitle != null)
             {
                 _secureTitle.text = "保险箱 " + _secure.Count + "/" + _secure.Grid.Capacity;
-            }
-
-            if (_progressFill != null)
-            {
-                float ratio = _campaign.CurrentDue <= 0
-                    ? 1f
-                    : Mathf.Clamp01((float)_campaign.Bit / _campaign.CurrentDue);
-                _progressFill.sizeDelta = new Vector2(150f * ratio, 5f);
-                _progressFill.GetComponent<Image>().color = ratio >= 1f ? AccentColor : WarningColor;
             }
         }
 
@@ -1073,26 +1053,8 @@ namespace BitRunner.Game
 
         private void SetMessage(string text)
         {
-            if (string.IsNullOrEmpty(text))
-            {
-                return;
-            }
-
-            if (_logEntries.Count > 0 && _logEntries[_logEntries.Count - 1] == text)
-            {
-                return;
-            }
-
-            _logEntries.Add(text);
-            while (_logEntries.Count > MaxLogEntries)
-            {
-                _logEntries.RemoveAt(0);
-            }
-
-            if (_logText != null)
-            {
-                _logText.text = string.Join("\n", _logEntries.ToArray());
-            }
+            // 日志归外壳持有：基地与探索/战斗共用同一份，切模式不清空。
+            _shell.AppendLog(text);
         }
 
         /// <summary>

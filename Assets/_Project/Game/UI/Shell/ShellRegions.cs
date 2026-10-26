@@ -79,6 +79,18 @@ namespace BitRunner.Game
                 RefHeight * 0.5f - (region.y + localY + height * 0.5f));
         }
 
+        /// <summary>
+        /// 把"相对区域左上角的局部矩形"换算成"相对区域中心的偏移"。
+        /// 用于 Screen 已经在区域容器内部（<see cref="GameShell.Region"/> 返回的 rect）建控件时——
+        /// 此时 <see cref="CreateCenteredPanel"/> 的 center 要相对容器中心，而不是屏幕中心。
+        /// </summary>
+        public static Vector2 LocalIn(Rect region, float localX, float localY, float width, float height)
+        {
+            return new Vector2(
+                localX + width * 0.5f - region.width * 0.5f,
+                region.height * 0.5f - localY - height * 0.5f);
+        }
+
         /// <summary>整个区域的正中（用于铺满该区域的底板）。</summary>
         public static Vector2 CenterOf(Rect region)
         {
